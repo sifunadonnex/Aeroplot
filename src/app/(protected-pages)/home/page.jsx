@@ -4,6 +4,7 @@ import * as echarts from 'echarts'
 import FileUpload from '@/components/shared/FileUpload'
 import FlightInfo from '@/components/shared/FlightInfo'
 import ProcessingProgress from '@/components/shared/ProcessingProgress'
+import ChartConfig from '@/components/shared/ChartConfig'
 import LargeCSVParser from '@/utils/LargeCSVParser'
 import Spinner from '@/components/ui/Spinner'
 
@@ -21,6 +22,8 @@ export default function FlightChart() {
   const [processingProgress, setProcessingProgress] = useState(0) // File processing progress
   const [processingMessage, setProcessingMessage] = useState('') // Processing status message
   const [showProgress, setShowProgress] = useState(false) // Show progress modal
+  const [chartConfig, setChartConfig] = useState({}) // Custom chart configuration per parameter
+  const [showChartConfig, setShowChartConfig] = useState(false) // Show chart config panel
 
   // Remove the automatic fetch effect since we're now using file upload
   // useEffect(() => {
@@ -118,6 +121,8 @@ export default function FlightChart() {
     setShowProgress(false)
     setProcessingProgress(0)
     setProcessingMessage('')
+    setChartConfig({})
+    setShowChartConfig(false)
   }
 
   // Intelligent data sampling to reduce dataset size while preserving trends
@@ -225,6 +230,60 @@ export default function FlightChart() {
     ).length
   }, [parameters, debouncedSearchTerm])
 
+  // Chart configuration functions
+  const updateParameterConfig = useCallback((param, config) => {
+    setChartConfig(prev => ({
+      ...prev,
+      [param]: { ...prev[param], ...config }
+    }))
+  }, [])
+
+  const resetParameterConfig = useCallback((param) => {
+    setChartConfig(prev => {
+      const newConfig = { ...prev }
+      delete newConfig[param]
+      return newConfig
+    })
+  }, [])
+
+  const getParameterConfig = useCallback((param) => {
+    return chartConfig[param] || {}
+  }, [chartConfig])
+
+  // Apply outlier filtering and range limiting
+  const applyParameterFiltering = useCallback((data, param, config) => {
+    if (!config.enableFiltering) return data
+
+    return data.map(row => {
+      const value = parseFloat(row[param])
+      if (isNaN(value)) return row
+
+      // Apply custom range if set
+      if (config.customRange) {
+        const { min, max } = config.customRange
+        if (value < min || value > max) {
+          return { ...row, [param]: null } // Filter out values outside range
+        }
+      }
+
+      // Apply outlier filtering
+      if (config.removeOutliers && config.outlierThreshold) {
+        const metadata = parameterMetadata[param]
+        if (metadata && metadata.isNumeric) {
+          const range = metadata.max - metadata.min
+          const threshold = range * (config.outlierThreshold / 100)
+          const mean = (metadata.max + metadata.min) / 2
+          
+          if (Math.abs(value - mean) > threshold) {
+            return { ...row, [param]: null } // Filter out outliers
+          }
+        }
+      }
+
+      return row
+    })
+  }, [parameterMetadata, chartConfig])
+
   // Memoize chart configuration to prevent unnecessary recalculations
   const chartOption = useMemo(() => {
     if (selectedParameters.length === 0 || data.length === 0) return null
@@ -256,8 +315,16 @@ export default function FlightChart() {
       if (!metadata) return null
 
       if (metadata.isNumeric) {
-        // Numeric parameter - optimized data processing
-        const numericData = data.map(row => {
+        // Numeric parameter - optimized data processing with filtering
+        let processedData = data
+        const config = getParameterConfig(param)
+        
+        // Apply filtering if enabled
+        if (config.enableFiltering) {
+          processedData = applyParameterFiltering(data, param, config)
+        }
+
+        const numericData = processedData.map(row => {
           const val = parseFloat(row[param])
           return isNaN(val) ? null : val
         })
@@ -363,6 +430,9 @@ export default function FlightChart() {
       const generateLineColor = (index) => colorPalette[index % colorPalette.length]
 
       if (metadata.isNumeric) {
+        const config = getParameterConfig(param)
+        const useCustomRange = config.customRange && config.useCustomRange
+        
         return {
           type: 'value',
           name: param,
@@ -374,9 +444,9 @@ export default function FlightChart() {
             fontSize: 9,
             fontWeight: 'bold',
           },
-          min: metadata.min,
-          max: metadata.max,
-          splitNumber: 1,
+          min: useCustomRange ? config.customRange.min : metadata.min,
+          max: useCustomRange ? config.customRange.max : metadata.max,
+          splitNumber: config.splitNumber || 5,
           axisLabel: {
             fontSize: 9,
             color: '#666',
@@ -519,7 +589,7 @@ export default function FlightChart() {
       ],
       series: series
     }
-  }, [selectedParameters, data, parameterMetadata, flightData?.fileName])
+  }, [selectedParameters, data, parameterMetadata, flightData?.fileName, chartConfig, getParameterConfig, applyParameterFiltering])
 
   useEffect(() => {
     if (!chartOption) return
@@ -618,6 +688,17 @@ export default function FlightChart() {
         isVisible={showProgress}
       />
 
+      {/* Chart Configuration Modal */}
+      <ChartConfig
+        selectedParameters={selectedParameters}
+        parameterMetadata={parameterMetadata}
+        chartConfig={chartConfig}
+        updateParameterConfig={updateParameterConfig}
+        resetParameterConfig={resetParameterConfig}
+        isVisible={showChartConfig}
+        onClose={() => setShowChartConfig(false)}
+      />
+
       {/* Loading Indicator */}
       {isLoading && !showProgress && (
         <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50">
@@ -655,6 +736,25 @@ export default function FlightChart() {
               flightData={flightData}
               onClearFile={handleClearFile}
             />
+            
+            {/* Chart Controls */}
+            <div className="mb-4 flex justify-between items-center">
+              <div className="text-sm text-gray-600">
+                {selectedParameters.length} parameter{selectedParameters.length !== 1 ? 's' : ''} selected
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setShowChartConfig(true)}
+                  disabled={selectedParameters.length === 0}
+                  className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
+                  </svg>
+                  Configure Charts
+                </button>
+              </div>
+            </div>
             
             {/* Chart Container */}
             <div className="flex-1 bg-white rounded-lg shadow-sm">
