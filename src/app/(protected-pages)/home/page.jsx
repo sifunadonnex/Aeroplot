@@ -291,21 +291,31 @@ export default function FlightChart() {
     const colorPalette = ['#4CAF50', '#3F51B5', '#FF9800', '#F44336', '#9C27B0']
     const generateLineColor = (index) => colorPalette[index % colorPalette.length]
 
-    // Calculate proper spacing
+    // Calculate proper spacing with minimum chart height
     const titleHeight = 8
     const toolboxHeight = 6
     const zoomHeight = 8
     const availableHeight = 100 - titleHeight - toolboxHeight - zoomHeight
     const totalParams = selectedParameters.length
-    const gridHeight = totalParams > 0 ? Math.floor(availableHeight / totalParams) - 3 : 0
-    const gridGap = 1
+    
+    // Set minimum height per chart (in percentage) and calculate if we need more space
+    const minChartHeight = 12 // Minimum 12% height per chart
+    const gridGap = 5
+    const requiredHeight = totalParams * (minChartHeight + gridGap)
+    
+    // If we need more space than available, we'll use minimum heights
+    // and let the container become scrollable
+    const useMinimumHeight = requiredHeight > availableHeight
+    const gridHeight = useMinimumHeight 
+      ? minChartHeight 
+      : Math.max(minChartHeight, Math.floor(availableHeight / totalParams) - gridGap)
 
     // Create grid configuration
     const grids = selectedParameters.map((param, index) => ({
       left: '8%',
       right: '4%',
       top: `${titleHeight + toolboxHeight + index * (gridHeight + gridGap)}%`,
-      height: `${gridHeight - 2}%`,
+      height: `${gridHeight - 1}%`,
       containLabel: false
     }))
 
@@ -437,12 +447,14 @@ export default function FlightChart() {
           type: 'value',
           name: param,
           gridIndex: index,
-          nameLocation: 'middle',
+          nameLocation: 'end',
           nameRotate: 0,
+          nameGap: 10,
           nameTextStyle: {
             color: generateLineColor(index),
-            fontSize: 9,
+            fontSize: 10,
             fontWeight: 'bold',
+            align: 'left',
           },
           min: useCustomRange ? config.customRange.min : metadata.min,
           max: useCustomRange ? config.customRange.max : metadata.max,
@@ -470,12 +482,14 @@ export default function FlightChart() {
           type: 'value',
           name: param,
           gridIndex: index,
-          nameLocation: 'middle',
+          nameLocation: 'end',
           nameRotate: 0,
+          nameGap: 10,
           nameTextStyle: {
             color: generateLineColor(index),
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: 'bold',
+            align: 'left',
           },
           min: -0.3, // Slight padding below
           max: states.length - 0.7, // Slight padding above
@@ -598,7 +612,7 @@ export default function FlightChart() {
     if (!chartDom) return
 
     const myChart = echarts.init(chartDom, null, { 
-      renderer: 'canvas', // Use canvas for better performance with large datasets
+      renderer: 'svg', // Use canvas for better performance with large datasets
       useDirtyRect: true // Enable dirty rectangle optimization
     })
 
@@ -680,7 +694,7 @@ export default function FlightChart() {
   }, [])
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex">
       {/* Processing Progress Modal */}
       <ProcessingProgress 
         progress={processingProgress}
@@ -701,29 +715,43 @@ export default function FlightChart() {
 
       {/* Loading Indicator */}
       {isLoading && !showProgress && (
-        <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50">
-          <div className="text-center">
-            <Spinner className="h-12 w-12 text-blue-600 animate-spin" />
-            <p className="mt-4 text-gray-600">Loading flight data...</p>
+        <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="text-center bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
+            <Spinner className="h-12 w-12 text-blue-600 animate-spin mx-auto" />
+            <p className="mt-4 text-gray-700 font-medium">Loading flight data...</p>
           </div>
         </div>
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 p-4 flex flex-col">
+      <div className="flex-1 p-6 flex flex-col">
         {/* File Upload Section - Show when no file is uploaded */}
         {!hasFile && (
           <div className="flex-1 flex items-center justify-center">
-            <div className="max-w-lg w-full">
-              <div className="text-center mb-6">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">Aeroplot</h1>
-                <p className="text-gray-600">Upload your CSV flight data to get started</p>
+            <div className="max-w-2xl w-full">
+              {/* Hero Section */}
+              <div className="text-center mb-12">
+                <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl shadow-lg mb-6">
+                  <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+                <h1 className="text-5xl font-bold bg-gradient-to-r from-gray-900 to-blue-900 bg-clip-text text-transparent mb-4">
+                  Aeroplot
+                </h1>
+                <p className="text-xl text-gray-600 mb-2">Advanced Flight Data Visualization</p>
+                <p className="text-gray-500">Upload your CSV flight data to start analyzing and visualizing your flight parameters</p>
               </div>
-              <FileUpload 
-                onFileUpload={handleFileUpload}
-                isLoading={isLoading}
-                acceptedFormats={['.csv']}
-              />
+
+
+              {/* Upload Component */}
+              <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+                <FileUpload 
+                  onFileUpload={handleFileUpload}
+                  isLoading={isLoading}
+                  acceptedFormats={['.csv']}
+                />
+              </div>
             </div>
           </div>
         )}
@@ -732,39 +760,56 @@ export default function FlightChart() {
         {hasFile && (
           <>
             {/* Flight Info */}
-            <FlightInfo 
-              flightData={flightData}
-              onClearFile={handleClearFile}
-            />
+            <div className="mb-6">
+              <FlightInfo 
+                flightData={flightData}
+                onClearFile={handleClearFile}
+              />
+            </div>
             
             {/* Chart Controls */}
-            <div className="mb-4 flex justify-between items-center">
-              <div className="text-sm text-gray-600">
-                {selectedParameters.length} parameter{selectedParameters.length !== 1 ? 's' : ''} selected
-              </div>
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => setShowChartConfig(true)}
-                  disabled={selectedParameters.length === 0}
-                  className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <svg className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
-                  </svg>
-                  Configure Charts
-                </button>
+            <div className="mb-6 bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
+                    <span className="text-sm font-medium text-gray-700">
+                      {selectedParameters.length} parameter{selectedParameters.length !== 1 ? 's' : ''} selected
+                    </span>
+                  </div>
+                  {selectedParameters.length > 0 && (
+                    <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                      {data.length.toLocaleString()} data points
+                    </div>
+                  )}
+                </div>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => setShowChartConfig(true)}
+                    disabled={selectedParameters.length === 0}
+                    className="inline-flex items-center px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-medium rounded-lg hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md hover:shadow-lg"
+                  >
+                    <svg className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
+                    </svg>
+                    Configure Charts
+                  </button>
+                </div>
               </div>
             </div>
             
             {/* Chart Container */}
-            <div className="flex-1 bg-white rounded-lg shadow-sm">
-              <div 
-                id='main' 
-                className="w-full h-full"
-                style={{ 
-                  minHeight: `${Math.max(500, selectedParameters.length * 120 + 150)}px`
-                }}
-              />
+            <div className="flex-1 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+              <div className="h-full overflow-auto">
+                <div 
+                  id='main' 
+                  className="w-full"
+                  style={{ 
+                    height: `${Math.max(500, selectedParameters.length * 140 + 200)}px`,
+                    minHeight: '500px'
+                  }}
+                />
+              </div>
             </div>
           </>
         )}
@@ -772,226 +817,266 @@ export default function FlightChart() {
 
       {/* Parameter Selection Panel - Only show when file is uploaded */}
       {hasFile && (
-        <div className="w-80 bg-white border-l border-gray-200 flex flex-col">
-        {/* Header */}
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-800">Parameters</h3>
-          <p className="text-sm text-gray-600 mt-1">
-            Total: {parameters.length} | Selected: {selectedParameters.length}
-            {debouncedSearchTerm && ` | Filtered: ${filteredParametersCount}`}
-          </p>
-        </div>
-
-        {/* Search Bar */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+        <div className="w-96 bg-white/95 backdrop-blur-sm border-l h-screen border-gray-200 flex flex-col shadow-xl">
+          {/* Header */}
+          <div className="p-6 bg-gradient-to-r from-slate-900 to-blue-900 text-white">
+            <div className="flex items-center space-x-3 mb-2">
+              <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-white">Parameters</h3>
             </div>
-            <input
-              type="text"
-              placeholder="Search parameters..."
-              value={searchTerm}
-              onChange={handleSearchChange}
-              className="block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            
+            {/* Stats Overview */}
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="bg-white/10 rounded-lg p-3">
+                <div className="text-2xl font-bold">{parameters.length}</div>
+                <div className="text-xs opacity-80">Total</div>
+              </div>
+              <div className="bg-white/10 rounded-lg p-3">
+                <div className="text-2xl font-bold text-green-300">{selectedParameters.length}</div>
+                <div className="text-xs opacity-80">Selected</div>
+              </div>
+              <div className="bg-white/10 rounded-lg p-3">
+                <div className="text-2xl font-bold text-blue-300">{debouncedSearchTerm ? filteredParametersCount : parameters.length}</div>
+                <div className="text-xs opacity-80">Visible</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Search Bar */}
+          <div className="p-4 bg-gray-50 border-b border-gray-200">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                placeholder="Search parameters..."
+                value={searchTerm}
+                onChange={handleSearchChange}
+                className="block w-full pl-10 pr-10 py-3 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm transition-all"
+              />
+              {searchTerm && (
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                  <button
+                    onClick={clearSearch}
+                    className="text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded-md hover:bg-gray-100 transition-colors"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            {/* Search Results Info */}
             {searchTerm && (
-              <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                <button
-                  onClick={clearSearch}
-                  className="text-gray-400 hover:text-gray-600 focus:outline-none"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+              <div className="mt-3 text-xs">
+                {debouncedSearchTerm === searchTerm ? (
+                  filteredParametersCount === 0 ? (
+                    <div className="text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-200">
+                      No parameters found matching "{searchTerm}"
+                    </div>
+                  ) : (
+                    <div className="text-blue-600 bg-blue-50 px-3 py-2 rounded-lg border border-blue-200">
+                      Found {filteredParametersCount} parameter{filteredParametersCount !== 1 ? 's' : ''}
+                    </div>
+                  )
+                ) : (
+                  <div className="text-blue-600 bg-blue-50 px-3 py-2 rounded-lg border border-blue-200 animate-pulse">
+                    Searching...
+                  </div>
+                )}
               </div>
             )}
           </div>
-          
-          {/* Search Results Info */}
-          {searchTerm && (
-            <div className="mt-2 text-xs text-gray-500">
-              {debouncedSearchTerm === searchTerm ? (
-                filteredParametersCount === 0 ? (
-                  <span className="text-red-500">No parameters found matching "{searchTerm}"</span>
-                ) : (
-                  <span>Found {filteredParametersCount} parameter{filteredParametersCount !== 1 ? 's' : ''}</span>
-                )
-              ) : (
-                <span className="text-blue-500">Searching...</span>
-              )}
-            </div>
-          )}
-        </div>
 
-        {/* Parameter Groups */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {Object.keys(parameterGroups).length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6-4h6m2 5.291A7.962 7.962 0 0112 15c-2.34 0-4.44-1.01-5.879-2.621M3 18.5A2.5 2.5 0 015.5 21h13a2.5 2.5 0 002.5-2.5 0 00-2.5-2.5h-13A2.5 2.5 0 003 18.5z" />
-              </svg>
-              <p className="mt-2 text-sm">No parameters found</p>
-              {searchTerm && (
-                <button
-                  onClick={clearSearch}
-                  className="mt-2 text-xs text-blue-600 hover:text-blue-800"
-                >
-                  Clear search
-                </button>
-              )}
-            </div>
-          ) : (
-            Object.entries(parameterGroups).map(([groupName, groupParams]) => {
-              const allSelected = groupParams.every(param => selectedParameters.includes(param))
-              const someSelected = groupParams.some(param => selectedParameters.includes(param))
-              
-              return (
-                <div key={groupName} className="border border-gray-200 rounded-lg">
-                  {/* Group Header */}
-                  <div 
-                    className="p-3 bg-gray-50 border-b border-gray-200 cursor-pointer hover:bg-gray-100 transition-colors"
-                    onClick={() => handleGroupToggle(groupParams)}
+          {/* Parameter Groups */}
+          <div className="flex-1 overflow-y-scroll p-4 space-y-4">
+            {Object.keys(parameterGroups).length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                  <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6-4h6m2 5.291A7.962 7.962 0 0112 15c-2.34 0-4.44-1.01-5.879-2.621M3 18.5A2.5 2.5 0 015.5 21h13a2.5 2.5 0 002.5-2.5 0 00-2.5-2.5h-13A2.5 2.5 0 003 18.5z" />
+                  </svg>
+                </div>
+                <p className="text-lg font-medium mb-2">No parameters found</p>
+                <p className="text-sm">Try adjusting your search criteria</p>
+                {searchTerm && (
+                  <button
+                    onClick={clearSearch}
+                    className="mt-4 text-sm text-blue-600 hover:text-blue-800 font-medium"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={allSelected}
-                          ref={input => {
-                            if (input) input.indeterminate = someSelected && !allSelected
-                          }}
-                          onChange={() => handleGroupToggle(groupParams)}
-                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                        />
-                        <span className="font-medium text-gray-800">
-                          {groupName}
-                          {debouncedSearchTerm && (
-                            <span className="ml-1 text-xs text-blue-600">
-                              ({groupParams.length})
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      <span className="text-sm text-gray-500">
-                        {groupParams.filter(p => selectedParameters.includes(p)).length}/{groupParams.length}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Group Parameters */}
-                  <div className="p-2 space-y-1">
-                    {groupParams.map((param, paramIndex) => {
-                      const isSelected = selectedParameters.includes(param)
-                      const paramColor = getParameterColor(param)
-                      const unit = units[parameters.indexOf(param) + 1] || ''
-                      const isNumeric = isNumericParameter(param)
-                      
-                      return (
-                        <div
-                          key={`${groupName}-${param}-${paramIndex}`}
-                          className={`flex items-center space-x-3 p-2 rounded cursor-pointer transition-colors ${
-                            isSelected 
-                              ? 'bg-blue-50 border border-blue-200' 
-                              : 'hover:bg-gray-50'
-                          }`}
-                          onClick={() => handleParameterToggle(param)}
-                        >
+                    Clear search
+                  </button>
+                )}
+              </div>
+            ) : (
+              Object.entries(parameterGroups).map(([groupName, groupParams]) => {
+                const allSelected = groupParams.every(param => selectedParameters.includes(param))
+                const someSelected = groupParams.some(param => selectedParameters.includes(param))
+                
+                return (
+                  <div key={groupName} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow">
+                    {/* Group Header */}
+                    <div 
+                      className="p-4 bg-white border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => handleGroupToggle(groupParams)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
                           <input
                             type="checkbox"
-                            checked={isSelected}
-                            onChange={() => handleParameterToggle(param)}
-                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                            checked={allSelected}
+                            ref={input => {
+                              if (input) input.indeterminate = someSelected && !allSelected
+                            }}
+                            onChange={() => handleGroupToggle(groupParams)}
+                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 transition-colors"
                           />
-                          
-                          {/* Color Indicator */}
-                          {isSelected && (
-                            <div 
-                              className="w-3 h-3 rounded-full border border-gray-300"
-                              style={{ backgroundColor: paramColor }}
-                            />
-                          )}
-                          
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <div className="text-sm font-medium text-gray-800 truncate">
-                                {getHighlightedName(param, debouncedSearchTerm)}
-                              </div>
-                              {!isNumeric && (
-                                <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">
-                                  CAT
+                          <div>
+                            <span className="font-semibold text-gray-900">
+                              {groupName}
+                              {debouncedSearchTerm && (
+                                <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                                  {groupParams.length}
                                 </span>
                               )}
-                            </div>
-                            {unit && (
-                              <div className="text-xs text-gray-500">
-                                {unit}
-                              </div>
-                            )}
+                            </span>
                           </div>
                         </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm text-gray-600 bg-gray-100 px-2 py-1 rounded-full">
+                            {groupParams.filter(p => selectedParameters.includes(p)).length}/{groupParams.length}
+                          </span>
+                          <svg 
+                            className="w-4 h-4 text-gray-400" 
+                            fill="none" 
+                            viewBox="0 0 24 24" 
+                            stroke="currentColor"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
 
-        {/* Footer Actions */}
-        <div className="p-4 border-t border-gray-200 space-y-2">
-          {debouncedSearchTerm ? (
-            <>
-              <button
-                onClick={() => {
-                  const searchLower = debouncedSearchTerm.toLowerCase()
-                  const filteredParams = parameters.filter(param => 
-                    param.toLowerCase().includes(searchLower)
-                  )
-                  setSelectedParameters(prev => [...new Set([...prev, ...filteredParams])])
-                }}
-                className="w-full px-4 py-2 text-sm font-medium text-green-600 bg-green-50 border border-green-200 rounded-md hover:bg-green-100 transition-colors"
-                disabled={isLoading || filteredParametersCount === 0}
-              >
-                Select Filtered ({filteredParametersCount})
-              </button>
-              <button
-                onClick={() => {
-                  const searchLower = debouncedSearchTerm.toLowerCase()
-                  const filteredParams = parameters.filter(param => 
-                    param.toLowerCase().includes(searchLower)
-                  )
-                  setSelectedParameters(prev => prev.filter(p => !filteredParams.includes(p)))
-                }}
-                className="w-full px-4 py-2 text-sm font-medium text-orange-600 bg-orange-50 border border-orange-200 rounded-md hover:bg-orange-100 transition-colors"
-                disabled={isLoading || filteredParametersCount === 0}
-              >
-                Deselect Filtered
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => setSelectedParameters(parameters)}
-                className="w-full px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
-                disabled={isLoading}
-              >
-                Select All
-              </button>
-              <button
-                onClick={() => setSelectedParameters([])}
-                className="w-full px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded-md hover:bg-gray-100 transition-colors"
-                disabled={isLoading}
-              >
-                Clear All
-              </button>
-            </>
-          )}
-        </div>
+                    {/* Group Parameters */}
+                    <div className="p-2 space-y-1">
+                      {groupParams.map((param, paramIndex) => {
+                        const isSelected = selectedParameters.includes(param)
+                        const paramColor = getParameterColor(param)
+                        const unit = units[parameters.indexOf(param) + 1] || ''
+                        const isNumeric = isNumericParameter(param)
+                        
+                        return (
+                          <div
+                            key={`${groupName}-${param}-${paramIndex}`}
+                            className={`flex items-center space-x-3 p-3 rounded-lg cursor-pointer transition-all ${
+                              isSelected 
+                                ? 'bg-blue-50 border-2 border-blue-200 shadow-sm' 
+                                : 'hover:bg-white border-2 border-transparent'
+                            }`}
+                            onClick={() => handleParameterToggle(param)}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleParameterToggle(param)}
+                              className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 transition-colors"
+                            />
+                            
+                            {/* Color Indicator */}
+                            {isSelected && (
+                              <div 
+                                className="w-3 h-3 rounded-full border-2 border-white shadow-sm"
+                                style={{ backgroundColor: paramColor }}
+                              />
+                            )}
+                            
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className="text-sm font-medium text-gray-900 truncate">
+                                  {getHighlightedName(param, debouncedSearchTerm)}
+                                </div>
+                                {!isNumeric && (
+                                  <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-full font-medium">
+                                    CAT
+                                  </span>
+                                )}
+                              </div>
+                              {unit && (
+                                <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-md inline-block">
+                                  {unit}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+          {/* Footer Actions */}
+          <div className="p-4 bg-gray-50 border-t border-gray-200 space-y-3">
+            {debouncedSearchTerm ? (
+              <>
+                <button
+                  onClick={() => {
+                    const searchLower = debouncedSearchTerm.toLowerCase()
+                    const filteredParams = parameters.filter(param => 
+                      param.toLowerCase().includes(searchLower)
+                    )
+                    setSelectedParameters(prev => [...new Set([...prev, ...filteredParams])])
+                  }}
+                  className="w-full px-4 py-3 text-sm font-medium text-white bg-gradient-to-r from-green-600 to-emerald-600 border border-transparent rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isLoading || filteredParametersCount === 0}
+                >
+                  Select Filtered ({filteredParametersCount})
+                </button>
+                <button
+                  onClick={() => {
+                    const searchLower = debouncedSearchTerm.toLowerCase()
+                    const filteredParams = parameters.filter(param => 
+                      param.toLowerCase().includes(searchLower)
+                    )
+                    setSelectedParameters(prev => prev.filter(p => !filteredParams.includes(p)))
+                  }}
+                  className="w-full px-4 py-3 text-sm font-medium text-orange-700 bg-orange-50 border border-orange-200 rounded-xl hover:bg-orange-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isLoading || filteredParametersCount === 0}
+                >
+                  Deselect Filtered
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setSelectedParameters(parameters)}
+                  className="w-full px-4 py-3 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-indigo-600 border border-transparent rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isLoading}
+                >
+                  Select All Parameters
+                </button>
+                <button
+                  onClick={() => setSelectedParameters([])}
+                  className="w-full px-4 py-3 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isLoading}
+                >
+                  Clear Selection
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
