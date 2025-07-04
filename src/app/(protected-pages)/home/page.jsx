@@ -445,25 +445,46 @@ export default function FlightChart() {
     const totalParams = selectedParameters.length
     
     // Set minimum height per chart (in percentage) and calculate if we need more space
-    const minChartHeight = 12 // Minimum 12% height per chart
-    const gridGap = 5
+    const minChartHeight = 15 // Increased minimum height per chart for better visibility
+    const gridGap = 6 // Increased gap for better visual separation
     const requiredHeight = totalParams * (minChartHeight + gridGap)
     
-    // If we need more space than available, we'll use minimum heights
-    // and let the container become scrollable
+    // Always ensure adequate space for each parameter
     const useMinimumHeight = requiredHeight > availableHeight
     const gridHeight = useMinimumHeight 
       ? minChartHeight 
       : Math.max(minChartHeight, Math.floor(availableHeight / totalParams) - gridGap)
 
-    // Create grid configuration
-    const grids = selectedParameters.map((param, index) => ({
-      left: '8%',
-      right: '4%',
-      top: `${titleHeight + toolboxHeight + index * (gridHeight + gridGap)}%`,
-      height: `${gridHeight - 1}%`,
-      containLabel: false
-    }))
+    // Calculate actual container height needed
+    const calculatedContainerHeight = Math.max(
+      600, // Minimum container height
+      totalParams * (minChartHeight * 8 + gridGap * 8) + 300 // Dynamic height: each param gets adequate spacing
+    )
+
+    // Create grid configuration with adaptive positioning
+    const grids = selectedParameters.map((param, index) => {
+      // For many parameters, switch to absolute positioning to ensure all are visible
+      if (totalParams > 6) {
+        const chartHeight = Math.max(120, Math.floor((calculatedContainerHeight - 200) / totalParams) - 20)
+        const gapBetweenCharts = 25 // Fixed gap between charts
+        return {
+          left: '8%',
+          right: '4%',
+          top: `${100 + index * (chartHeight + gapBetweenCharts)}px`, // Absolute positioning with proper gaps
+          height: `${chartHeight}px`,
+          containLabel: false
+        }
+      } else {
+        // Use percentage for smaller numbers of parameters
+        return {
+          left: '8%',
+          right: '4%',
+          top: `${titleHeight + toolboxHeight + index * (gridHeight + gridGap)}%`,
+          height: `${gridHeight - 1}%`,
+          containLabel: false
+        }
+      }
+    })
 
     // Optimize data processing - use cached metadata
     const series = selectedParameters.map((param, index) => {
@@ -680,12 +701,12 @@ export default function FlightChart() {
         }
       }
     }).filter(Boolean)
-
+    //Flight Data - ${flightData?.fileName || 'Uploaded File'}
     return {
       backgroundColor: '#fff',
       animation: false, // Disable animation for better performance
       title: {
-        text: `Flight Data - ${flightData?.fileName || 'Uploaded File'}`,
+        text: ``,
         left: 'center',
         top: '1%',
         textStyle: { fontSize: 16, fontWeight: 'bold', color: '#333' }
@@ -793,122 +814,356 @@ export default function FlightChart() {
     // Add print functionality to window
     window.printChart = () => {
       // Create a new window for printing with optimized layout
-      const printWindow = window.open('', '_blank', 'width=1200,height=800')
+      const printWindow = window.open('', '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes')
       
-      // Get high-resolution chart as SVG or canvas
-      const chartSVG = myChart.renderToSVGString()
+      if (!printWindow) {
+        alert('Please allow pop-ups to enable chart printing.')
+        return
+      }
       
-      const printContent = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Flight Data Chart - ${flightData?.fileName || 'Chart'}</title>
-          <style>
-            @page {
-              size: A4 landscape;
-              margin: 0.5in;
+      // Calculate grid layout for print (same logic as main chart)
+      const titleHeight = 4  // Reduced for print
+      const availableHeight = 96 // More space since no toolbox/zoom
+      const totalParams = selectedParameters.length
+      const minChartHeight = 15 // Increased for better visibility
+      const gridGap = 6 // Increased gap for better separation
+      const requiredHeight = totalParams * (minChartHeight + gridGap)
+      const useMinimumHeight = requiredHeight > availableHeight
+      const gridHeight = useMinimumHeight 
+        ? minChartHeight 
+        : Math.max(minChartHeight, Math.floor(availableHeight / totalParams) - gridGap)
+      
+      // Create a print-specific chart configuration without controls
+      const printChartOption = {
+        ...chartOption,
+        // Remove toolbox (zoom, refresh, download controls)
+        toolbox: null,
+        // Remove dataZoom controls
+        dataZoom: null,
+        // Adjust layout for print without toolbox
+        title: {
+          ...chartOption.title,
+          top: '2%'
+        },
+        // Recalculate grid positions without toolbox space
+        grid: selectedParameters.map((param, index) => {
+          // For many parameters in print, use absolute positioning
+          if (totalParams > 6) {
+            const printChartHeight = Math.max(100, Math.floor((800 + totalParams * 160) / totalParams) - 20)
+            const printGapBetweenCharts = 20 // Fixed gap between charts in print
+            return {
+              left: '8%',
+              right: '4%',
+              top: `${60 + index * (printChartHeight + printGapBetweenCharts)}px`,
+              height: `${printChartHeight}px`,
+              containLabel: false
             }
-            body {
-              margin: 0;
-              padding: 20px;
-              font-family: Arial, sans-serif;
-              background: white;
+          } else {
+            // Use percentage for smaller numbers
+            return {
+              ...chartOption.grid[index],
+              top: `${titleHeight + index * (gridHeight + gridGap)}%`
             }
-            .chart-container {
-              width: 100%;
-              height: auto;
-              page-break-inside: avoid;
-              display: flex;
-              justify-content: center;
-              align-items: center;
-            }
-            .chart-container svg {
-              max-width: 100%;
-              height: auto;
-            }
-            .footer {
-              margin-top: 20px;
-              text-align: center;
-              font-size: 12px;
-              color: #888;
-              page-break-inside: avoid;
-            }
-            .parameters-info {
-              margin-top: 15px;
-              font-size: 12px;
-              color: #555;
-              text-align: left;
-            }
-            .parameters-list {
-              display: grid;
-              grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-              gap: 10px;
-              margin-top: 10px;
-            }
-            .parameter-item {
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              padding: 4px 8px;
-              background: #f9f9f9;
-              border-radius: 4px;
-            }
-            .color-dot {
-              width: 12px;
-              height: 12px;
-              border-radius: 50%;
-              border: 1px solid #ddd;
-            }
-            @media print {
-              body { 
-                background: white !important; 
-                -webkit-print-color-adjust: exact;
-                color-adjust: exact;
-              }
-              .no-print { display: none !important; }
-            }
-          </style>
-        </head>
-        <body>
-
-          <div class="chart-container">
-            ${chartSVG}
-          </div>
+          }
+        })
+      }
+      
+      // Create a temporary chart for print rendering
+      const printChartDom = document.createElement('div')
+      printChartDom.style.width = '1200px'
+      printChartDom.style.height = `${Math.max(700, selectedParameters.length * 160 + 200)}px`
+      printChartDom.style.position = 'absolute'
+      printChartDom.style.left = '-9999px'
+      document.body.appendChild(printChartDom)
+      
+      const printChart = echarts.init(printChartDom, null, { 
+        renderer: 'svg',
+        useDirtyRect: false
+      })
+      
+      printChart.setOption(printChartOption, true)
+      
+      // Get clean SVG without controls
+      const chartSVG = printChart.renderToSVGString()
+      
+      // Clean up temporary chart
+      printChart.dispose()
+      document.body.removeChild(printChartDom)
+      
+      // Create the print HTML content with improved page break handling
+      const printHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flight Data Chart - ${flightData?.fileName || 'Chart'}</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    
+    @page {
+      size: A4 landscape;
+      margin: 12mm;
+    }
+    
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: white;
+      color: #333;
+      line-height: 1.4;
+    }
+    
+    .print-container {
+      width: 100%;
+      max-width: 100%;
+      padding: 0;
+      margin: 0;
+    }
+    
+    .chart-header {
+      text-align: center;
+      margin-bottom: 15px;
+      page-break-inside: avoid;
+      page-break-after: avoid;
+    }
+    
+    .chart-header h1 {
+      margin: 0 0 8px 0;
+      font-size: 22px;
+      color: #2c3e50;
+      font-weight: 600;
+    }
+    
+    .chart-header p {
+      margin: 0;
+      font-size: 13px;
+      color: #7f8c8d;
+    }
+    
+    .chart-container {
+      width: 100%;
+      text-align: center;
+      margin-bottom: 15px;
+      page-break-inside: avoid;
+      page-break-before: auto;
+      page-break-after: avoid;
+      /* Ensure the chart takes up most of the first page */
+      min-height: ${selectedParameters.length > 4 ? '85vh' : '70vh'};
+    }
+    
+    .chart-container svg {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+      /* Prevent SVG from being split */
+      page-break-inside: avoid;
+    }
+    
+    .parameters-section {
+      margin-top: 20px;
+      page-break-before: ${selectedParameters.length > 4 ? 'always' : 'auto'};
+      page-break-inside: avoid;
+    }
+    
+    .parameters-section h3 {
+      margin: 0 0 12px 0;
+      font-size: 16px;
+      color: #2c3e50;
+      font-weight: 600;
+      border-bottom: 2px solid #3498db;
+      padding-bottom: 4px;
+    }
+    
+    .parameters-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 6px;
+      margin-bottom: 15px;
+    }
+    
+    .parameter-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: #f8f9fa;
+      border: 1px solid #e9ecef;
+      border-radius: 4px;
+      font-size: 12px;
+      page-break-inside: avoid;
+    }
+    
+    .color-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid white;
+      box-shadow: 0 0 0 1px #ddd;
+      flex-shrink: 0;
+    }
+    
+    .parameter-name {
+      font-weight: 600;
+      color: #2c3e50;
+    }
+    
+    .parameter-unit {
+      color: #7f8c8d;
+      font-style: italic;
+    }
+    
+    .parameter-type {
+      color: #e74c3c;
+      font-size: 10px;
+      font-weight: 500;
+    }
+    
+    .footer {
+      margin-top: 20px;
+      padding-top: 10px;
+      border-top: 1px solid #ecf0f1;
+      text-align: center;
+      font-size: 11px;
+      color: #95a5a6;
+      page-break-inside: avoid;
+    }
+    
+    /* Print-specific optimizations */
+    @media print {
+      html, body {
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      
+      .print-container {
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      
+      .no-print {
+        display: none !important;
+      }
+      
+      /* Force page breaks for large charts */
+      .chart-container {
+        page-break-inside: avoid !important;
+        page-break-before: auto !important;
+        page-break-after: ${selectedParameters.length > 4 ? 'always' : 'avoid'} !important;
+      }
+      
+      .parameters-section {
+        page-break-before: ${selectedParameters.length > 4 ? 'always' : 'auto'} !important;
+        page-break-inside: avoid !important;
+      }
+      
+      /* Ensure proper margins across browsers */
+      @page {
+        margin: 12mm !important;
+        size: A4 landscape !important;
+      }
+      
+      /* Prevent widow/orphan lines */
+      .parameter-item {
+        page-break-inside: avoid !important;
+        orphans: 2;
+        widows: 2;
+      }
+      
+      /* Optimize for different numbers of parameters */
+      ${selectedParameters.length > 6 ? `
+        .chart-container {
+          min-height: 90vh !important;
+        }
+        .parameters-section {
+          page-break-before: always !important;
+        }
+      ` : ''}
+    }
+  </style>
+</head>
+<body>
+  <div class="print-container">
+    <div class="chart-header">
+      <h1>Flight Data Visualization</h1>
+      <p>File: ${flightData?.fileName || 'Unknown'} | Parameters: ${selectedParameters.length} | Generated: ${new Date().toLocaleString()}</p>
+    </div>
+    
+    <div class="chart-container">
+      ${chartSVG}
+    </div>
+    
+    <div class="parameters-section">
+      <h3>Chart Parameters Legend (${selectedParameters.length} selected)</h3>
+      <div class="parameters-grid">
+        ${selectedParameters.map((param, index) => {
+          const color = ['#4CAF50', '#3F51B5', '#FF9800', '#F44336', '#9C27B0', '#795548', '#607D8B'][index % 7]
+          const unit = units[parameters.indexOf(param) + 1] || ''
+          const isNumeric = parameterMetadata[param]?.isNumeric ?? true
+          const isSparse = hasSparsityIssues(data, param)
           
-          <div class="parameters-info">
-            <h3>Selected Parameters:</h3>
-            <div class="parameters-list">
-              ${selectedParameters.map((param, index) => {
-                const color = ['#4CAF50', '#3F51B5', '#FF9800', '#F44336', '#9C27B0'][index % 5]
-                const unit = units[parameters.indexOf(param) + 1] || ''
-                const isNumeric = parameterMetadata[param]?.isNumeric ?? true
-                return `
-                  <div class="parameter-item">
-                    <div class="color-dot" style="background-color: ${color}"></div>
-                    <span><strong>${param}</strong> ${unit ? `(${unit})` : ''} ${!isNumeric ? '[Categorical]' : ''}</span>
-                  </div>
-                `
-              }).join('')}
+          return `
+            <div class="parameter-item">
+              <div class="color-indicator" style="background-color: ${color};"></div>
+              <div>
+                <span class="parameter-name">${param}</span>
+                ${unit ? `<span class="parameter-unit"> (${unit})</span>` : ''}
+                ${!isNumeric ? `<span class="parameter-type"> [Categorical]</span>` : ''}
+                ${isSparse ? `<span class="parameter-type"> [Sparse Data]</span>` : ''}
+              </div>
             </div>
-          </div>
-          
-          <div class="footer">
-            <p>Generated by Aeroplot - Advanced Flight Data Visualization</p>
-          </div>
-          
-          <script>
-            window.onload = function() {
-              setTimeout(() => {
-                window.print();
-                setTimeout(() => window.close(), 1000);
-              }, 500);
-            }
-          </script>
-        </body>
-        </html>
-      `
+          `
+        }).join('')}
+      </div>
+    </div>
+    
+    <div class="footer">
+      <p>Generated by Aeroplot - Advanced Flight Data Visualization Tool</p>
+      <p>© ${new Date().getFullYear()} | Professional chart output with clean layout</p>
+    </div>
+  </div>
+  
+  <script>
+    // Ensure the content is fully loaded before printing
+    function initiatePrint() {
+      // Give the SVG time to render properly
+      setTimeout(() => {
+        // Focus the window to ensure print dialog appears
+        window.focus();
+        
+        // Trigger print
+        window.print();
+        
+        // Close window after printing (with a delay for user to complete printing)
+        setTimeout(() => {
+          window.close();
+        }, 2000);
+      }, 1000);
+    }
+    
+    // Wait for all content to load
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initiatePrint);
+    } else {
+      initiatePrint();
+    }
+    
+    // Fallback: also trigger on window load
+    window.addEventListener('load', () => {
+      setTimeout(initiatePrint, 500);
+    });
+  </script>
+</body>
+</html>`
       
-      printWindow.document.write(printContent)
+      // Write content to the new window
+      printWindow.document.open()
+      printWindow.document.write(printHTML)
       printWindow.document.close()
     }
 
@@ -1158,8 +1413,8 @@ export default function FlightChart() {
                   id='main' 
                   className="w-full"
                   style={{ 
-                    height: `${Math.max(500, selectedParameters.length * 140 + 200)}px`,
-                    minHeight: '500px'
+                    height: `${Math.max(600, selectedParameters.length * 180 + 350)}px`,
+                    minHeight: '600px'
                   }}
                 />
               </div>
