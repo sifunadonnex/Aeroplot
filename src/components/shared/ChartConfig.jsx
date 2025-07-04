@@ -231,6 +231,73 @@ export default function ChartConfig({
                         </div>
                       </div>
                     </div>
+
+                    {/* Sparse Data Handling */}
+                    <div className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h5 className="font-medium text-gray-900">Sparse Data Handling</h5>
+                        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                          Advanced
+                        </span>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="flex items-center mb-3">
+                            <input
+                              type="checkbox"
+                              checked={getParameterConfig(activeTab).forceInterpolation || false}
+                              onChange={() => updateParameterConfig(activeTab, {
+                                forceInterpolation: !getParameterConfig(activeTab).forceInterpolation
+                              })}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">Force Interpolation</span>
+                          </label>
+                          <p className="text-xs text-gray-600 ml-6">
+                            Always interpolate missing values, even for dense data
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Interpolation Method
+                          </label>
+                          <select
+                            value={getParameterConfig(activeTab).interpolationMethod || 'forward'}
+                            onChange={(e) => updateParameterConfig(activeTab, {
+                              interpolationMethod: e.target.value
+                            })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            <option value="forward">Forward Fill (Recommended)</option>
+                            <option value="linear">Linear Interpolation</option>
+                            <option value="backward">Backward Fill</option>
+                            <option value="none">No Interpolation</option>
+                          </select>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Forward fill maintains the last recorded value, which is most accurate for flight parameters
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={getParameterConfig(activeTab).smoothInterpolated || false}
+                              onChange={() => updateParameterConfig(activeTab, {
+                                smoothInterpolated: !getParameterConfig(activeTab).smoothInterpolated
+                              })}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">Smooth Interpolated Lines</span>
+                          </label>
+                          <p className="text-xs text-gray-600 ml-6">
+                            Apply smoothing to interpolated data for better visual continuity
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   </>
                 )}
 

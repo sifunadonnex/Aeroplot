@@ -176,6 +176,101 @@ export default function FlightChart() {
     return { data: rows, units: units }
   }
 
+  // Utility function to interpolate missing values in sparse data
+  const interpolateSparseData = useCallback((data, param, method = 'linear') => {
+    const values = data.map(row => {
+      const val = row[param]
+      return (val === '' || val === null || val === undefined) ? null : parseFloat(val)
+    })
+
+    // Find valid (non-null) data points
+    const validPoints = []
+    values.forEach((val, index) => {
+      if (val !== null && !isNaN(val)) {
+        validPoints.push({ index, value: val })
+      }
+    })
+
+    if (validPoints.length === 0) return values
+
+    // Create interpolated array
+    const interpolated = [...values]
+
+    for (let i = 0; i < values.length; i++) {
+      if (values[i] === null || isNaN(values[i])) {
+        // Find surrounding valid points
+        let prevPoint = null
+        let nextPoint = null
+
+        for (let j = validPoints.length - 1; j >= 0; j--) {
+          if (validPoints[j].index < i) {
+            prevPoint = validPoints[j]
+            break
+          }
+        }
+
+        for (let j = 0; j < validPoints.length; j++) {
+          if (validPoints[j].index > i) {
+            nextPoint = validPoints[j]
+            break
+          }
+        }
+
+        // Apply interpolation based on method
+        switch (method) {
+          case 'forward':
+          default:
+            // Forward fill - use the last recorded value (most common for flight data)
+            if (prevPoint) {
+              interpolated[i] = prevPoint.value
+            } else if (nextPoint) {
+              // If no previous value, use next value (edge case for beginning of data)
+              interpolated[i] = nextPoint.value
+            }
+            break
+            
+          case 'linear':
+            if (prevPoint && nextPoint) {
+              // Linear interpolation between two points
+              const ratio = (i - prevPoint.index) / (nextPoint.index - prevPoint.index)
+              interpolated[i] = prevPoint.value + ratio * (nextPoint.value - prevPoint.value)
+            } else if (prevPoint) {
+              interpolated[i] = prevPoint.value
+            } else if (nextPoint) {
+              interpolated[i] = nextPoint.value
+            }
+            break
+            
+          case 'backward':
+            if (nextPoint) {
+              interpolated[i] = nextPoint.value
+            } else if (prevPoint) {
+              interpolated[i] = prevPoint.value
+            }
+            break
+            
+          case 'none':
+            // Leave as null - no interpolation
+            break
+        }
+      }
+    }
+
+    return interpolated
+  }, [])
+
+  // Check if a parameter has sparse data (significant missing values)
+  const hasSparsityIssues = useCallback((data, param) => {
+    const totalRows = data.length
+    const validRows = data.filter(row => {
+      const val = row[param]
+      return val !== '' && val !== null && val !== undefined && !isNaN(parseFloat(val))
+    }).length
+
+    // Consider sparse if more than 20% of data is missing
+    return (totalRows - validRows) / totalRows > 0.2
+  }, [])
+
   // Optimized parameter type checking using cached metadata
   const isNumericParameter = useCallback((param) => {
     return parameterMetadata[param]?.isNumeric ?? true
@@ -334,10 +429,21 @@ export default function FlightChart() {
           processedData = applyParameterFiltering(data, param, config)
         }
 
-        const numericData = processedData.map(row => {
-          const val = parseFloat(row[param])
-          return isNaN(val) ? null : val
-        })
+        // Check if parameter has sparsity issues and needs interpolation
+        const needsInterpolation = hasSparsityIssues(processedData, param) || config.forceInterpolation
+        const interpolationMethod = config.interpolationMethod || 'forward' // Default to forward fill for flight data
+        
+        let numericData
+        if (needsInterpolation && interpolationMethod !== 'none') {
+          // Use interpolation for sparse data
+          numericData = interpolateSparseData(processedData, param, interpolationMethod)
+        } else {
+          // Standard processing for dense data
+          numericData = processedData.map(row => {
+            const val = parseFloat(row[param])
+            return isNaN(val) ? null : val
+          })
+        }
 
         return {
           name: param,
@@ -347,11 +453,11 @@ export default function FlightChart() {
             width: 1.5,
             color: generateLineColor(index)
           },
-          smooth: false,
+          smooth: needsInterpolation && interpolationMethod === 'linear' && (config.smoothInterpolated !== false), // Only smooth for linear interpolation
           xAxisIndex: index,
           yAxisIndex: index,
           data: numericData,
-          connectNulls: false,
+          connectNulls: needsInterpolation, // Connect nulls for interpolated data
           large: data.length > 1000,
           largeThreshold: 1000
         }
@@ -936,6 +1042,44 @@ export default function FlightChart() {
               </div>
             </div>
             
+            {/* Sparse Data Info Banner */}
+            {selectedParameters.some(p => isNumericParameter(p) && hasSparsityIssues(data, p)) && (
+              <div className="mb-6 bg-orange-50 border border-orange-200 rounded-xl p-4">
+                <div className="flex items-start space-x-3">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
+                      <svg className="w-4 h-4 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-sm font-medium text-orange-800 mb-1">
+                      Sparse Data Detected
+                    </h4>
+                    <p className="text-sm text-orange-700 mb-2">
+                      {selectedParameters.filter(p => isNumericParameter(p) && hasSparsityIssues(data, p)).length} parameter{selectedParameters.filter(p => isNumericParameter(p) && hasSparsityIssues(data, p)).length !== 1 ? 's' : ''} ha{selectedParameters.filter(p => isNumericParameter(p) && hasSparsityIssues(data, p)).length === 1 ? 's' : 've'} missing values that will be filled with the last recorded value (forward fill).
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedParameters
+                        .filter(p => isNumericParameter(p) && hasSparsityIssues(data, p))
+                        .map(param => (
+                          <span 
+                            key={param}
+                            className="inline-flex items-center px-2 py-1 bg-orange-100 text-orange-800 text-xs font-medium rounded-full"
+                          >
+                            {param}
+                          </span>
+                        ))}
+                    </div>
+                    <p className="text-xs text-orange-600 mt-2">
+                      Use "Configure Charts" to change interpolation method or disable gap filling for specific parameters.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {/* Chart Container */}
             <div className="flex-1 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
               <div className="h-full overflow-auto">
@@ -968,18 +1112,24 @@ export default function FlightChart() {
             </div>
             
             {/* Stats Overview */}
-            <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="grid grid-cols-4 gap-2 text-center">
               <div className="bg-white/10 rounded-lg p-3">
-                <div className="text-2xl font-bold">{parameters.length}</div>
+                <div className="text-xl font-bold">{parameters.length}</div>
                 <div className="text-xs opacity-80">Total</div>
               </div>
               <div className="bg-white/10 rounded-lg p-3">
-                <div className="text-2xl font-bold text-green-300">{selectedParameters.length}</div>
+                <div className="text-xl font-bold text-green-300">{selectedParameters.length}</div>
                 <div className="text-xs opacity-80">Selected</div>
               </div>
               <div className="bg-white/10 rounded-lg p-3">
-                <div className="text-2xl font-bold text-blue-300">{debouncedSearchTerm ? filteredParametersCount : parameters.length}</div>
+                <div className="text-xl font-bold text-blue-300">{debouncedSearchTerm ? filteredParametersCount : parameters.length}</div>
                 <div className="text-xs opacity-80">Visible</div>
+              </div>
+              <div className="bg-white/10 rounded-lg p-3">
+                <div className="text-xl font-bold text-orange-300">
+                  {selectedParameters.filter(p => isNumericParameter(p) && hasSparsityIssues(data, p)).length}
+                </div>
+                <div className="text-xs opacity-80">Sparse</div>
               </div>
             </div>
           </div>
@@ -1112,6 +1262,7 @@ export default function FlightChart() {
                         const paramColor = getParameterColor(param)
                         const unit = units[parameters.indexOf(param) + 1] || ''
                         const isNumeric = isNumericParameter(param)
+                        const isSparse = isNumeric && hasSparsityIssues(data, param)
                         
                         return (
                           <div
@@ -1146,6 +1297,14 @@ export default function FlightChart() {
                                 {!isNumeric && (
                                   <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-full font-medium">
                                     CAT
+                                  </span>
+                                )}
+                                {isSparse && (
+                                  <span 
+                                    className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded-full font-medium cursor-help"
+                                    title="Sparse data - missing values filled with last recorded value"
+                                  >
+                                    SPARSE
                                   </span>
                                 )}
                               </div>
