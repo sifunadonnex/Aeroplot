@@ -153,7 +153,7 @@ export default function FlightChart() {
       
       metadata[param] = {
         isNumeric: numericValues.length / values.length > 0.8,
-        states: [...new Set(values)],
+        states: [...new Set(values)].sort(), // Remove duplicates and sort for consistency
         min: numericValues.length > 0 ? Math.min(...numericValues.map(v => parseFloat(v))) : 0,
         max: numericValues.length > 0 ? Math.max(...numericValues.map(v => parseFloat(v))) : 1
       }
@@ -357,8 +357,7 @@ export default function FlightChart() {
         }
       } else {
         // Categorical parameter - step line chart for discrete states
-        const states = metadata.states
-        const stateColors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD']
+        const states = [...new Set(metadata.states)].sort() // Remove duplicates and sort
         
         // Pre-build state index map for faster lookup
         const stateMap = new Map()
@@ -380,22 +379,7 @@ export default function FlightChart() {
             width: 2,
             color: generateLineColor(index)
           },
-          areaStyle: {
-            color: {
-              type: 'linear',
-              x: 0,
-              y: 0,
-              x2: 0,
-              y2: 1,
-              colorStops: [{
-                offset: 0,
-                color: generateLineColor(index) + '40' // Add transparency
-              }, {
-                offset: 1,
-                color: generateLineColor(index) + '10'
-              }]
-            }
-          },
+          // Remove areaStyle to eliminate shading
           xAxisIndex: index,
           yAxisIndex: index,
           data: stepData,
@@ -477,7 +461,7 @@ export default function FlightChart() {
           }
         }
       } else {
-        const states = metadata.states
+        const states = [...new Set(metadata.states)].sort() // Remove duplicates and sort
         return {
           type: 'value',
           name: param,
@@ -491,8 +475,8 @@ export default function FlightChart() {
             fontWeight: 'bold',
             align: 'left',
           },
-          min: -0.3, // Slight padding below
-          max: states.length - 0.7, // Slight padding above
+          min: 0, // Start from 0 for proper alignment
+          max: states.length - 1, // End at length-1 for proper alignment
           interval: 1, // Ensure integer intervals
           splitNumber: states.length,
           axisLabel: {
@@ -500,7 +484,10 @@ export default function FlightChart() {
             color: '#666',
             formatter: (value) => {
               const stateIndex = Math.round(value)
-              return states[stateIndex] || ''
+              if (stateIndex >= 0 && stateIndex < states.length) {
+                return states[stateIndex]
+              }
+              return ''
             }
           },
           axisLine: { show: true, lineStyle: { color: '#ddd' } },
@@ -508,7 +495,8 @@ export default function FlightChart() {
             show: true, 
             length: 3,
             lineStyle: { color: '#ddd' },
-            interval: 0 // Show tick for each state
+            interval: 0, // Show tick for each state
+            alignWithLabel: true // Align ticks with labels
           },
           splitLine: { 
             show: true,
@@ -546,19 +534,24 @@ export default function FlightChart() {
           
           let tooltipContent = `<div><strong>Sample: ${params[0].dataIndex}</strong></div>`
           
-          params.forEach(param => {
+          params.forEach((param, paramIndex) => {
             const paramName = param.seriesName
             const metadata = parameterMetadata[paramName]
+            // Use the same color generation logic as the chart
+            const colorPalette = ['#4CAF50', '#3F51B5', '#FF9800', '#F44336', '#9C27B0']
+            const selectedParamIndex = selectedParameters.indexOf(paramName)
+            const paramColor = colorPalette[selectedParamIndex % colorPalette.length]
             
             if (metadata && !metadata.isNumeric) {
               // For categorical parameters, show the actual state name
               const stateIndex = Math.round(param.value)
-              const stateName = metadata.states[stateIndex] || 'Unknown'
-              tooltipContent += `<div>${paramName}: <span style="color:${param.color}">${stateName}</span></div>`
+              const cleanedStates = [...new Set(metadata.states)].sort()
+              const stateName = cleanedStates[stateIndex] || 'Unknown'
+              tooltipContent += `<div>${paramName}: <span style="color:${paramColor}">${stateName}</span></div>`
             } else {
               // For numeric parameters, show the value
               const value = param.value !== null ? param.value.toFixed(2) : 'N/A'
-              tooltipContent += `<div>${paramName}: <span style="color:${param.color}">${value}</span></div>`
+              tooltipContent += `<div>${paramName}: <span style="color:${paramColor}">${value}</span></div>`
             }
           })
           
