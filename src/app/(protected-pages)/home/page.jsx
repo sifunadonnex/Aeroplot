@@ -866,7 +866,7 @@ export default function FlightChart() {
             const topMargin = 3 // Minimal top margin to prevent cropping
             const availablePrintHeight = 92 // Available height with restored chart spacing
             const printGridHeight = Math.floor(availablePrintHeight / chartsOnThisPage) - 2.5 // Divide space evenly among charts on this page
-            const printGapBetweenCharts = 4.5 // Restored gap between charts for better readability
+            const printGapBetweenCharts = 4 // Restored gap between charts for better readability
             
             return {
               left: '2%', // Minimal left margin for maximum chart width
@@ -1492,7 +1492,7 @@ export default function FlightChart() {
 
       {/* Parameter Selection Panel - Only show when file is uploaded */}
       {hasFile && (
-        <div className="w-96 bg-white/95 backdrop-blur-sm border-l h-screen border-gray-200 flex flex-col shadow-xl">
+        <div className="w-96 bg-white/95 backdrop-blur-sm border-l h-[200vh] border-gray-200 flex flex-col shadow-xl">
           {/* Header */}
           <div className="p-6 bg-gradient-to-r from-slate-900 to-blue-900 text-white">
             <div className="flex items-center space-x-3 mb-2">
