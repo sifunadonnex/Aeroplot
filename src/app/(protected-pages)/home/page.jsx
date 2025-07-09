@@ -821,72 +821,96 @@ export default function FlightChart() {
         return
       }
       
-      // Calculate grid layout for print (same logic as main chart)
-      const titleHeight = 4  // Reduced for print
-      const availableHeight = 96 // More space since no toolbox/zoom
+      // Calculate how many pages we need (6 charts per page)
+      const chartsPerPage = 6
       const totalParams = selectedParameters.length
-      const minChartHeight = 15 // Increased for better visibility
-      const gridGap = 6 // Increased gap for better separation
-      const requiredHeight = totalParams * (minChartHeight + gridGap)
-      const useMinimumHeight = requiredHeight > availableHeight
-      const gridHeight = useMinimumHeight 
-        ? minChartHeight 
-        : Math.max(minChartHeight, Math.floor(availableHeight / totalParams) - gridGap)
+      const totalPages = Math.ceil(totalParams / chartsPerPage)
       
-      // Create a print-specific chart configuration without controls
-      const printChartOption = {
-        ...chartOption,
-        // Remove toolbox (zoom, refresh, download controls)
-        toolbox: null,
-        // Remove dataZoom controls
-        dataZoom: null,
-        // Adjust layout for print without toolbox and header
-        title: null, // Remove title/header completely for more space
-        // Only show first 6 parameters for print
-        series: chartOption.series ? chartOption.series.slice(0, 6) : [],
-        xAxis: chartOption.xAxis ? chartOption.xAxis.slice(0, 6) : [],
-        yAxis: chartOption.yAxis ? chartOption.yAxis.slice(0, 6) : [],
-        // Recalculate grid positions for print - ensure 6 graphs max per page
-        grid: selectedParameters.slice(0, 6).map((param, index) => {
-          // Fixed positioning for exactly 6 graphs to fit on one page (no header)
-          const topMargin = 5 // Add top margin to prevent cropping
-          const availablePrintHeight = 90 // Reduced available height to account for margins
-          const printGridHeight = Math.floor(availablePrintHeight / 6) - 3 // Equal height for 6 graphs with better spacing
-          const printGapBetweenCharts = 3 // Increased gap between charts for better separation
-          
-          return {
-            left: '8%',
-            right: '4%',
-            top: `${topMargin + index * (printGridHeight + printGapBetweenCharts)}%`,
-            height: `${printGridHeight}%`,
-            containLabel: false
-          }
+      // Generate chart pages
+      const chartPages = []
+      
+      for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+        const startIndex = pageIndex * chartsPerPage
+        const endIndex = Math.min(startIndex + chartsPerPage, totalParams)
+        const pageParams = selectedParameters.slice(startIndex, endIndex)
+        const chartsOnThisPage = pageParams.length
+        
+        // Create a print-specific chart configuration for this page
+        const printChartOption = {
+          ...chartOption,
+          // Remove toolbox (zoom, refresh, download controls)
+          toolbox: null,
+          // Remove dataZoom controls
+          dataZoom: null,
+          // Adjust layout for print without toolbox and header
+          title: null, // Remove title/header completely for more space
+          // Show parameters for this page only with adjusted indices
+          series: chartOption.series ? chartOption.series.slice(startIndex, endIndex).map((series, index) => ({
+            ...series,
+            xAxisIndex: index, // Reset to 0-based indexing for this page
+            yAxisIndex: index, // Reset to 0-based indexing for this page
+            gridIndex: index   // Reset to 0-based gridIndex for this page
+          })) : [],
+          // Slice and reset the xAxis and yAxis to match the grid indices
+          xAxis: chartOption.xAxis ? chartOption.xAxis.slice(startIndex, endIndex).map((axis, index) => ({
+            ...axis,
+            gridIndex: index // Reset gridIndex to 0-based for this page
+          })) : [],
+          yAxis: chartOption.yAxis ? chartOption.yAxis.slice(startIndex, endIndex).map((axis, index) => ({
+            ...axis,
+            gridIndex: index // Reset gridIndex to 0-based for this page
+          })) : [],
+          // Recalculate grid positions for print - 6 graphs max per page or less for last page
+          grid: pageParams.map((param, index) => {
+            // Optimized positioning for charts to maximize space usage
+            const topMargin = 3 // Minimal top margin to prevent cropping
+            const availablePrintHeight = 92 // Available height with restored chart spacing
+            const printGridHeight = Math.floor(availablePrintHeight / chartsOnThisPage) - 2.5 // Divide space evenly among charts on this page
+            const printGapBetweenCharts = 4.5 // Restored gap between charts for better readability
+            
+            return {
+              left: '2%', // Minimal left margin for maximum chart width
+              right: '1%', // Minimal right margin for maximum chart width
+              top: `${topMargin + index * (printGridHeight + printGapBetweenCharts)}%`,
+              height: `${printGridHeight}%`,
+              containLabel: false
+            }
+          })
+        }
+        
+        // Create a temporary chart for print rendering
+        const printChartDom = document.createElement('div')
+        printChartDom.style.width = '1200px'
+        printChartDom.style.height = '850px' // Increased height for larger charts
+        printChartDom.style.position = 'absolute'
+        printChartDom.style.left = '-9999px'
+        document.body.appendChild(printChartDom)
+        
+        const printChart = echarts.init(printChartDom, null, { 
+          renderer: 'svg',
+          useDirtyRect: false
+        })
+        
+        printChart.setOption(printChartOption, true)
+        
+        // Get clean SVG without controls
+        const chartSVG = printChart.renderToSVGString()
+        
+        // Clean up temporary chart
+        printChart.dispose()
+        document.body.removeChild(printChartDom)
+        
+        // Store the SVG and page info
+        chartPages.push({
+          svg: chartSVG,
+          params: pageParams,
+          pageNumber: pageIndex + 1,
+          totalPages: totalPages,
+          startIndex: startIndex
         })
       }
       
-      // Create a temporary chart for print rendering
-      const printChartDom = document.createElement('div')
-      printChartDom.style.width = '1200px'
-      printChartDom.style.height = '800px' // Fixed height for 6 graphs
-      printChartDom.style.position = 'absolute'
-      printChartDom.style.left = '-9999px'
-      document.body.appendChild(printChartDom)
-      
-      const printChart = echarts.init(printChartDom, null, { 
-        renderer: 'svg',
-        useDirtyRect: false
-      })
-      
-      printChart.setOption(printChartOption, true)
-      
-      // Get clean SVG without controls
-      const chartSVG = printChart.renderToSVGString()
-      
-      // Clean up temporary chart
-      printChart.dispose()
-      document.body.removeChild(printChartDom)
-      
-      // Create the print HTML content with improved page break handling
+      // Create the print HTML content with multiple chart pages
       const printHTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -900,7 +924,7 @@ export default function FlightChart() {
     
     @page {
       size: A4 landscape;
-      margin: 12mm;
+      margin: 8mm; /* Reduced margins for more chart space */
     }
     
     html, body {
@@ -919,37 +943,29 @@ export default function FlightChart() {
       margin: 0;
     }
     
-    .chart-header {
-      text-align: center;
-      margin-bottom: 15px;
+    .chart-page {
+      page-break-before: always;
+      page-break-after: always;
       page-break-inside: avoid;
-      page-break-after: avoid;
+      height: 100vh;
+      position: relative;
     }
     
-    .chart-header h1 {
-      margin: 0 0 8px 0;
-      font-size: 22px;
-      color: #2c3e50;
-      font-weight: 600;
-    }
-    
-    .chart-header p {
-      margin: 0;
-      font-size: 13px;
-      color: #7f8c8d;
+    .chart-page:first-child {
+      page-break-before: auto;
     }
     
     .chart-container {
       width: 100%;
       text-align: center;
-      margin-bottom: 15px;
+      margin-bottom: 8px; /* Reduced margin */
       page-break-inside: avoid;
       page-break-before: auto;
       page-break-after: avoid;
-      /* Fixed height to ensure 6 graphs fit on one page without header */
-      height: 80vh;
-      max-height: 80vh;
-      margin-top: 10px;
+      /* Optimized height for charts with maximized horizontal space */
+      height: 85vh; /* Adjusted height to accommodate chart spacing */
+      max-height: 85vh;
+      margin-top: 8px; /* Reduced top margin */
     }
     
     .chart-container svg {
@@ -960,6 +976,14 @@ export default function FlightChart() {
       margin: 0 auto;
       /* Prevent SVG from being split and ensure it fits */
       page-break-inside: avoid;
+    }
+    
+    .page-header {
+      text-align: center;
+      margin-bottom: 5px; /* Reduced margin */
+      font-size: 11px; /* Slightly smaller font */
+      color: #666;
+      font-weight: 500;
     }
     
     .parameters-section {
@@ -1031,16 +1055,16 @@ export default function FlightChart() {
       page-break-inside: avoid;
     }
     
-    .footer-first-page {
+    .footer-chart-page {
       position: absolute;
-      bottom: 15px;
+      bottom: 3px; /* Minimal bottom margin */
       left: 0;
       right: 0;
-      margin-top: 10px;
-      padding-top: 8px;
+      margin-top: 4px; /* Reduced margin */
+      padding-top: 4px; /* Reduced padding */
       border-top: 1px solid #ecf0f1;
       text-align: center;
-      font-size: 10px;
+      font-size: 8px; /* Smaller font for minimal footer */
       color: #95a5a6;
       page-break-inside: avoid;
     }
@@ -1063,14 +1087,26 @@ export default function FlightChart() {
         display: none !important;
       }
       
-      /* Force page breaks for chart and parameters without header */
+      .chart-page {
+        page-break-before: always !important;
+        page-break-after: always !important;
+        page-break-inside: avoid !important;
+        height: 100vh !important;
+      }
+      
+      .chart-page:first-child {
+        page-break-before: auto !important;
+      }
+      
+      /* Force page breaks for chart and parameters */
       .chart-container {
         page-break-inside: avoid !important;
         page-break-before: auto !important;
-        page-break-after: always !important;
-        height: 80vh !important;
-        max-height: 80vh !important;
-        margin-top: 10px !important;
+        page-break-after: avoid !important;
+        height: 85vh !important; /* Adjusted height to accommodate chart spacing */
+        max-height: 85vh !important;
+        margin-top: 8px !important; /* Reduced top margin */
+        margin-bottom: 8px !important; /* Reduced bottom margin */
       }
       
       .parameters-section {
@@ -1080,17 +1116,17 @@ export default function FlightChart() {
       
       /* Ensure proper margins across browsers */
       @page {
-        margin: 12mm !important;
+        margin: 8mm !important; /* Reduced margins for more chart space */
         size: A4 landscape !important;
       }
       
       /* Print-specific optimizations for footers */
-      .footer-first-page {
+      .footer-chart-page {
         position: absolute !important;
-        bottom: 10px !important;
+        bottom: 3px !important; /* Minimal bottom margin */
         left: 0 !important;
         right: 0 !important;
-        font-size: 9px !important;
+        font-size: 8px !important; /* Smaller footer font */
         page-break-inside: avoid !important;
       }
       
@@ -1105,13 +1141,6 @@ export default function FlightChart() {
         widows: 2;
       }
       
-      /* Optimize for 6 graphs maximum per page without header */
-      .chart-container {
-        height: 80vh !important;
-        max-height: 80vh !important;
-        margin-top: 10px !important;
-      }
-      
       .chart-container svg {
         height: 100% !important;
         max-height: 100% !important;
@@ -1121,19 +1150,25 @@ export default function FlightChart() {
 </head>
 <body>
   <div class="print-container">
-    <div class="chart-container">
-      ${chartSVG}
-    </div>
-    
-    <div class="footer footer-first-page">
-      <p>Generated by Aeroplot - Advanced Flight Data Visualization Tool</p>
-      <p>© ${new Date().getFullYear()} | Professional chart output with clean layout</p>
-    </div>
+    ${chartPages.map((page, pageIndex) => `
+      <div class="chart-page">
+        <div class="page-header">
+          Flight Data Charts - Page ${page.pageNumber} of ${page.totalPages} | File: ${flightData?.fileName || 'Unknown'} | Parameters ${page.startIndex + 1}-${page.startIndex + page.params.length} of ${totalParams}
+        </div>
+        <div class="chart-container">
+          ${page.svg}
+        </div>
+        <div class="footer footer-chart-page">
+          <p>Generated by Aeroplot - Advanced Flight Data Visualization Tool | Page ${page.pageNumber} of ${page.totalPages}</p>
+          <p>© ${new Date().getFullYear()} | Professional chart output with clean layout</p>
+        </div>
+      </div>
+    `).join('')}
     
     <div class="parameters-section">
-      <h3>Flight Data Chart - File: ${flightData?.fileName || 'Unknown'} | Parameters: ${Math.min(selectedParameters.length, 6)} displayed | Generated: ${new Date().toLocaleString()}</h3>
+      <h3>Flight Data Chart Summary - File: ${flightData?.fileName || 'Unknown'} | Total Parameters: ${totalParams} | Generated: ${new Date().toLocaleString()}</h3>
       <div class="parameters-grid">
-        ${selectedParameters.slice(0, 6).map((param, index) => {
+        ${selectedParameters.map((param, index) => {
           const color = ['#4CAF50', '#3F51B5', '#FF9800', '#F44336', '#9C27B0', '#795548', '#607D8B'][index % 7]
           const unit = units[parameters.indexOf(param) + 1] || ''
           const isNumeric = parameterMetadata[param]?.isNumeric ?? true
