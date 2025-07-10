@@ -733,6 +733,7 @@ export default function FlightChart() {
                         min: minValue,
                         max: maxValue,
                         splitNumber: 2, // Only show min and max
+                        interval: (maxValue - minValue), // Force only min and max to be shown
                         axisLabel: {
                             fontSize: 9,
                             color: paramColor,
@@ -748,6 +749,7 @@ export default function FlightChart() {
                             show: true,
                             length: 3,
                             lineStyle: { color: paramColor },
+                            interval: 0, // Show ticks only at min and max
                         },
                         splitLine: {
                             show: true,
@@ -756,6 +758,7 @@ export default function FlightChart() {
                                 color: paramColor,
                                 opacity: 0.2,
                             },
+                            interval: 0, // Show split lines only at min and max
                         },
                     }
                 } else {
