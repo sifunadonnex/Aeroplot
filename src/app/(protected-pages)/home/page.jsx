@@ -1009,14 +1009,39 @@ export default function FlightChart() {
                               .map((axis, index) => ({
                                   ...axis,
                                   gridIndex: index, // Reset gridIndex to 0-based for this page
+                                  axisLabel: {
+                                      ...axis.axisLabel,
+                                      show: index === chartsOnThisPage - 1, // Show x-axis labels on the last chart of each page
+                                  },
+                                  axisTick: {
+                                      ...axis.axisTick,
+                                      show: index === chartsOnThisPage - 1, // Show x-axis ticks on the last chart of each page
+                                  },
+                                  axisLine: {
+                                      ...axis.axisLine,
+                                      show: index === chartsOnThisPage - 1, // Show x-axis line on the last chart of each page
+                                  },
                               }))
                         : [],
                     yAxis: chartOption.yAxis
                         ? chartOption.yAxis
                               .slice(startIndex, endIndex)
                               .map((axis, index) => ({
-                                  ...axis,
+                                  type: axis.type,
+                                  name: axis.name,
                                   gridIndex: index, // Reset gridIndex to 0-based for this page
+                                  nameLocation: axis.nameLocation,
+                                  nameRotate: axis.nameRotate,
+                                  nameGap: axis.nameGap,
+                                  nameTextStyle: axis.nameTextStyle,
+                                  min: axis.min,
+                                  max: axis.max,
+                                  splitNumber: axis.splitNumber, // Preserve min/max only display for numeric
+                                  interval: axis.interval,
+                                  axisLabel: axis.axisLabel,
+                                  axisLine: axis.axisLine,
+                                  axisTick: axis.axisTick,
+                                  splitLine: axis.splitLine,
                               }))
                         : [],
                     // Recalculate grid positions for print - 6 graphs max per page or less for last page
