@@ -25,12 +25,72 @@ export default function FlightChart() {
     const [chartConfig, setChartConfig] = useState({}) // Custom chart configuration per parameter
     const [showChartConfig, setShowChartConfig] = useState(false) // Show chart config panel
     const [analystInfo, setAnalystInfo] = useState({
-        name: 'J.MALLIT',
-        aircraft: '5Y-CHH',
-        partNumber: '5703-1000-00',
-        serialNumber: '02221',
-        fileId: '666679GC.FDT',
+        name: '',
+        aircraft: '',
+        partNumber: '',
+        serialNumber: '',
+        fileId: '',
     })
+
+    // Load analyst info from localStorage on component mount
+    useEffect(() => {
+        const savedAnalystInfo = localStorage.getItem('aeroplot-analyst-info')
+        if (savedAnalystInfo) {
+            try {
+                const parsed = JSON.parse(savedAnalystInfo)
+                setAnalystInfo(prev => ({
+                    ...prev,
+                    ...parsed,
+                    fileId: '' // Always start with empty file ID for new sessions
+                }))
+            } catch (error) {
+                console.error('Error loading saved analyst info:', error)
+            }
+        }
+    }, [])
+
+    // Save analyst info to localStorage with debouncing to improve performance
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            const infoToSave = {
+                name: analystInfo.name,
+                aircraft: analystInfo.aircraft,
+                partNumber: analystInfo.partNumber,
+                serialNumber: analystInfo.serialNumber,
+                // Don't save fileId as it should be unique per session
+            }
+            localStorage.setItem('aeroplot-analyst-info', JSON.stringify(infoToSave))
+        }, 500) // 500ms debounce delay
+
+        return () => clearTimeout(timer)
+    }, [analystInfo.name, analystInfo.aircraft, analystInfo.partNumber, analystInfo.serialNumber])
+
+    // Optimized analyst info update handler
+    const handleAnalystInfoChange = useCallback((key, value) => {
+        setAnalystInfo(prev => ({
+            ...prev,
+            [key]: value
+        }))
+    }, [])
+
+    // Generate unique file ID based on current date/time and random number
+    const generateFileId = (fileName) => {
+        const date = new Date()
+        const year = date.getFullYear().toString().slice(-2)
+        const month = String(date.getMonth() + 1).padStart(2, '0')
+        const day = String(date.getDate()).padStart(2, '0')
+        const hours = String(date.getHours()).padStart(2, '0')
+        const minutes = String(date.getMinutes()).padStart(2, '0')
+        
+        // Generate random 3-digit number
+        const randomNum = Math.floor(Math.random() * 900) + 100
+        
+        // Get file extension or default to FDT
+        const extension = fileName ? fileName.split('.').pop().toUpperCase() : 'FDT'
+        const fileExt = extension === 'CSV' ? 'FDT' : extension
+        
+        return `${year}${month}${day}${hours}${minutes}${randomNum}.${fileExt}`
+    }
 
     // Remove the automatic fetch effect since we're now using file upload
     // useEffect(() => {
@@ -91,6 +151,16 @@ export default function FlightChart() {
                 uploadedAt: new Date(),
                 wasDownsampled: totalRows > sampledData.length,
             })
+            
+            // Auto-generate file ID if not already set
+            if (!analystInfo.fileId) {
+                const generatedFileId = generateFileId(file.name)
+                setAnalystInfo(prev => ({
+                    ...prev,
+                    fileId: generatedFileId
+                }))
+            }
+            
             setHasFile(true)
 
             setProcessingMessage('Complete!')
@@ -132,6 +202,14 @@ export default function FlightChart() {
         setProcessingMessage('')
         setChartConfig({})
         setShowChartConfig(false)
+        // Reset analyst info to empty values
+        setAnalystInfo({
+            name: '',
+            aircraft: '',
+            partNumber: '',
+            serialNumber: '',
+            fileId: '',
+        })
     }
 
     // Intelligent data sampling to reduce dataset size while preserving trends
@@ -1657,9 +1735,24 @@ export default function FlightChart() {
 
                             {/* Analyst Header Information Section */}
                             <div>
-                                <h4 className="text-sm font-semibold text-gray-800 mb-3">
-                                    Print Header Information
-                                </h4>
+                                <div className="flex items-center justify-between mb-3">
+                                    <h4 className="text-sm font-semibold text-gray-800">
+                                        Print Header Information
+                                    </h4>
+                                    <button
+                                        onClick={() => {
+                                            const newFileId = generateFileId(flightData?.fileName)
+                                            setAnalystInfo(prev => ({
+                                                ...prev,
+                                                fileId: newFileId
+                                            }))
+                                        }}
+                                        className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
+                                        title="Generate new File ID"
+                                    >
+                                        Generate New File ID
+                                    </button>
+                                </div>
 
                                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                                     {[
@@ -1667,31 +1760,37 @@ export default function FlightChart() {
                                             label: 'Analyst Name',
                                             value: analystInfo.name,
                                             key: 'name',
-                                            placeholder: 'J.MALLIT',
+                                            placeholder: 'Enter analyst name',
+                                            required: true,
                                         },
                                         {
                                             label: 'Aircraft',
                                             value: analystInfo.aircraft,
                                             key: 'aircraft',
-                                            placeholder: '5Y-CHH',
+                                            placeholder: 'e.g., 5Y-CHH',
+                                            required: true,
                                         },
                                         {
                                             label: 'Part Number',
                                             value: analystInfo.partNumber,
                                             key: 'partNumber',
-                                            placeholder: '5703-1000-00',
+                                            placeholder: 'e.g., 5703-1000-00',
+                                            required: false,
                                         },
                                         {
                                             label: 'Serial Number',
                                             value: analystInfo.serialNumber,
                                             key: 'serialNumber',
-                                            placeholder: '02221',
+                                            placeholder: 'e.g., 02221',
+                                            required: false,
                                         },
                                         {
                                             label: 'File ID',
                                             value: analystInfo.fileId,
                                             key: 'fileId',
-                                            placeholder: '666679GC.FDT',
+                                            placeholder: 'Auto-generated',
+                                            required: false,
+                                            readonly: false,
                                         },
                                     ].map(
                                         ({
@@ -1699,26 +1798,33 @@ export default function FlightChart() {
                                             value,
                                             key,
                                             placeholder,
+                                            required,
+                                            readonly,
                                         }) => (
                                             <div key={key}>
                                                 <label className="block text-xs font-medium text-gray-600 mb-1">
                                                     {label}
+                                                    {required && <span className="text-red-500 ml-1">*</span>}
                                                 </label>
                                                 <input
                                                     type="text"
                                                     value={value}
                                                     onChange={(e) =>
-                                                        setAnalystInfo(
-                                                            (prev) => ({
-                                                                ...prev,
-                                                                [key]: e.target
-                                                                    .value,
-                                                            }),
-                                                        )
+                                                        handleAnalystInfoChange(key, e.target.value)
                                                     }
                                                     placeholder={placeholder}
-                                                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                                    readOnly={readonly}
+                                                    className={`w-full px-2 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${
+                                                        readonly ? 'bg-gray-100 cursor-not-allowed' : ''
+                                                    } ${
+                                                        required && !value ? 'border-red-300 bg-red-50' : ''
+                                                    }`}
                                                 />
+                                                {required && !value && (
+                                                    <p className="text-xs text-red-500 mt-1">
+                                                        This field is required for professional reports
+                                                    </p>
+                                                )}
                                             </div>
                                         ),
                                     )}

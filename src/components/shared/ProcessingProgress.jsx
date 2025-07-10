@@ -36,11 +36,7 @@ export default function ProcessingProgress({ progress, message, isVisible, onCan
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent transform -skew-x-12 animate-pulse"></div>
               </div>
             </div>
-            {/* Percentage indicator */}
-            <div 
-              className="absolute -top-1 w-2 h-2 bg-blue-600 rounded-full shadow-md transition-all duration-700 ease-out"
-              style={{ left: `calc(${progress}% - 4px)` }}
-            />
+            
           </div>
         </div>
 
