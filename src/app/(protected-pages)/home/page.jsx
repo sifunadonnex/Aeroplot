@@ -1,5 +1,6 @@
 'use client'
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react'
+import PropTypes from 'prop-types'
 import * as echarts from 'echarts'
 import FileUpload from '@/components/shared/FileUpload'
 import FlightInfo from '@/components/shared/FlightInfo'
@@ -8,15 +9,161 @@ import ChartConfig from '@/components/shared/ChartConfig'
 import LargeCSVParser from '@/utils/LargeCSVParser'
 import Spinner from '@/components/ui/Spinner'
 
+// Memoized components for better performance
+const ParameterGroupHeader = memo(({ groupName, groupParams, selectedParameters, onGroupToggle, isLoading }) => {
+    const allSelected = groupParams.every((param) => selectedParameters.includes(param))
+    const someSelected = groupParams.some((param) => selectedParameters.includes(param))
+    
+    return (
+        <div className="flex items-center justify-between p-3 bg-gray-50 border-b border-gray-200">
+            <div className="flex items-center space-x-3">
+                <button
+                    onClick={() => onGroupToggle(groupParams)}
+                    disabled={isLoading}
+                    className={`flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded-lg transition-all ${
+                        allSelected
+                            ? 'bg-blue-100 text-blue-800 hover:bg-blue-200'
+                            : someSelected
+                                ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
+                                : 'bg-white text-gray-700 hover:bg-gray-100'
+                    }`}
+                >
+                    <div
+                        className={`w-4 h-4 border-2 rounded flex items-center justify-center ${
+                            allSelected
+                                ? 'bg-blue-600 border-blue-600'
+                                : someSelected
+                                    ? 'bg-yellow-500 border-yellow-500'
+                                    : 'border-gray-300'
+                        }`}
+                    >
+                        {allSelected && (
+                            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                        )}
+                        {someSelected && !allSelected && (
+                            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                            </svg>
+                        )}
+                    </div>
+                    <span className="font-medium">{groupName}</span>
+                    <span className="text-xs opacity-75">({groupParams.length})</span>
+                </button>
+            </div>
+        </div>
+    )
+})
+
+ParameterGroupHeader.displayName = 'ParameterGroupHeader'
+ParameterGroupHeader.propTypes = {
+    groupName: PropTypes.string.isRequired,
+    groupParams: PropTypes.arrayOf(PropTypes.string).isRequired,
+    selectedParameters: PropTypes.arrayOf(PropTypes.string).isRequired,
+    onGroupToggle: PropTypes.func.isRequired,
+    isLoading: PropTypes.bool.isRequired
+}
+
+const ParameterItem = memo(({ 
+    param, 
+    index, 
+    isSelected, 
+    isNumeric, 
+    isSparse, 
+    paramColor, 
+    unit, 
+    debouncedSearchTerm, 
+    onToggle, 
+    getHighlightedName 
+}) => {
+    return (
+        <div
+            className={`flex items-center space-x-3 p-3 rounded-lg transition-all cursor-pointer ${
+                isSelected
+                    ? 'bg-blue-50 border-2 border-blue-200 shadow-sm'
+                    : 'hover:bg-white border-2 border-transparent'
+            }`}
+            onClick={() => onToggle(param)}
+        >
+            <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => onToggle(param)}
+                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 transition-colors"
+            />
+
+            {/* Color Indicator */}
+            {isSelected && (
+                <div
+                    className="w-3 h-3 rounded-full border-2 border-white shadow-sm"
+                    style={{ backgroundColor: paramColor }}
+                />
+            )}
+
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                    <div className="text-sm font-medium text-gray-900 truncate">
+                        {getHighlightedName(param, debouncedSearchTerm)}
+                    </div>
+                    {!isNumeric && (
+                        <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-full font-medium">
+                            CAT
+                        </span>
+                    )}
+                    {isSparse && (
+                        <span
+                            className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded-full font-medium cursor-help"
+                            title="Sparse data - missing values filled with last recorded value"
+                        >
+                            SPARSE
+                        </span>
+                    )}
+                </div>
+                {unit && (
+                    <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-md inline-block">
+                        {unit}
+                    </div>
+                )}
+            </div>
+        </div>
+    )
+})
+
+ParameterItem.displayName = 'ParameterItem'
+ParameterItem.propTypes = {
+    param: PropTypes.string.isRequired,
+    index: PropTypes.number.isRequired,
+    isSelected: PropTypes.bool.isRequired,
+    isNumeric: PropTypes.bool.isRequired,
+    isSparse: PropTypes.bool.isRequired,
+    paramColor: PropTypes.string.isRequired,
+    unit: PropTypes.string,
+    debouncedSearchTerm: PropTypes.string,
+    onToggle: PropTypes.func.isRequired,
+    getHighlightedName: PropTypes.func.isRequired
+}
+
 export default function FlightChart() {
+    // Performance optimization: Use refs for values that don't need to trigger re-renders
+    const chartRef = useRef(null)
+    const chartInstanceRef = useRef(null)
+    const searchTimeoutRef = useRef(null)
+    const saveTimeoutRef = useRef(null)
+    
+    // Core state
     const [data, setData] = useState([])
     const [parameters, setParameters] = useState([])
     const [selectedParameters, setSelectedParameters] = useState([])
     const [units, setUnits] = useState([])
     const [isLoading, setIsLoading] = useState(false)
+    
+    // Performance state: Cache heavy computations
     const [parameterMetadata, setParameterMetadata] = useState({}) // Cache for parameter analysis
     const [searchTerm, setSearchTerm] = useState('') // Search functionality
     const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('') // Debounced search
+    
+    // UI state
     const [flightData, setFlightData] = useState(null) // Store file information
     const [hasFile, setHasFile] = useState(false) // Track if file is uploaded
     const [processingProgress, setProcessingProgress] = useState(0) // File processing progress
@@ -24,10 +171,13 @@ export default function FlightChart() {
     const [showProgress, setShowProgress] = useState(false) // Show progress modal
     const [chartConfig, setChartConfig] = useState({}) // Custom chart configuration per parameter
     const [showChartConfig, setShowChartConfig] = useState(false) // Show chart config panel
+    
+    // Global configuration
     const [globalConfig, setGlobalConfig] = useState({
         enableFocusParameter: false,
         focusParameter: 'Airspeed_Comp_Vtd' // Default focus parameter
     }) // Global chart configuration
+    
     const [analystInfo, setAnalystInfo] = useState({
         name: '',
         aircraft: '',
@@ -63,9 +213,14 @@ export default function FlightChart() {
         }
     }, [])
 
-    // Save analyst info to localStorage with debouncing to improve performance
+    // Performance optimization: Save analyst info with timeout cleanup
     useEffect(() => {
-        const timer = setTimeout(() => {
+        // Clear existing timeout
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current)
+        }
+        
+        saveTimeoutRef.current = setTimeout(() => {
             const infoToSave = {
                 name: analystInfo.name,
                 aircraft: analystInfo.aircraft,
@@ -74,15 +229,36 @@ export default function FlightChart() {
                 // Don't save fileId as it should be unique per session
             }
             localStorage.setItem('aeroplot-analyst-info', JSON.stringify(infoToSave))
-        }, 500) // 500ms debounce delay
+        }, 300) // Reduced delay
 
-        return () => clearTimeout(timer)
+        return () => {
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current)
+            }
+        }
     }, [analystInfo.name, analystInfo.aircraft, analystInfo.partNumber, analystInfo.serialNumber])
 
-    // Save global config to localStorage
+    // Save global config to localStorage with performance optimization
     useEffect(() => {
-        localStorage.setItem('aeroplot-global-config', JSON.stringify(globalConfig))
+        const timer = setTimeout(() => {
+            localStorage.setItem('aeroplot-global-config', JSON.stringify(globalConfig))
+        }, 100) // Small delay to batch updates
+        
+        return () => clearTimeout(timer)
     }, [globalConfig])
+
+    // Component cleanup for performance
+    useEffect(() => {
+        return () => {
+            // Clean up all timeouts on unmount
+            if (searchTimeoutRef.current) {
+                clearTimeout(searchTimeoutRef.current)
+            }
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current)
+            }
+        }
+    }, [])
 
     // Optimized analyst info update handler
     const handleAnalystInfoChange = useCallback((key, value) => {
@@ -116,13 +292,22 @@ export default function FlightChart() {
     //   fetchCSVData(flight.file)
     // }, [flight.file])
 
-    // Debounce search term to improve performance
+    // Performance optimization: Debounce search with timeout cleanup
     useEffect(() => {
-        const timer = setTimeout(() => {
+        // Clear existing timeout
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current)
+        }
+        
+        searchTimeoutRef.current = setTimeout(() => {
             setDebouncedSearchTerm(searchTerm)
-        }, 300) // 300ms delay
+        }, 200) // Reduced delay for better responsiveness
 
-        return () => clearTimeout(timer)
+        return () => {
+            if (searchTimeoutRef.current) {
+                clearTimeout(searchTimeoutRef.current)
+            }
+        }
     }, [searchTerm])
 
     const handleFileUpload = async (file) => {
@@ -149,9 +334,9 @@ export default function FlightChart() {
 
             setData(sampledData)
             setUnits(units)
-            const paramList = headers.filter(
+            const paramList = [...new Set(headers.filter(
                 (key) => key !== 'time' && key !== 'Sample' && key !== 'Phase',
-            )
+            ))]
             setParameters(paramList)
             setSelectedParameters(paramList.length > 0 ? [paramList[0]] : [])
 
@@ -250,34 +435,45 @@ export default function FlightChart() {
         return sampled
     }
 
-    // Pre-analyze parameters once to avoid repeated calculations
-    const analyzeParameters = (data, paramList) => {
+    // Pre-analyze parameters once to avoid repeated calculations - optimized for performance
+    const analyzeParameters = useCallback((data, paramList) => {
         const metadata = {}
+        
+        // Batch process all parameters for better performance
         paramList.forEach((param) => {
-            const values = data
-                .map((row) => row[param])
-                .filter(
-                    (val) => val !== '' && val !== null && val !== undefined,
-                )
-            const numericValues = values.filter(
-                (val) => !isNaN(parseFloat(val)),
-            )
+            const values = []
+            const numericValues = []
+            let nonEmptyCount = 0
+            
+            // Single pass through data for efficiency
+            for (let i = 0; i < data.length; i++) {
+                const val = data[i][param]
+                if (val !== '' && val !== null && val !== undefined) {
+                    values.push(val)
+                    nonEmptyCount++
+                    
+                    const numVal = parseFloat(val)
+                    if (!isNaN(numVal)) {
+                        numericValues.push(numVal)
+                    }
+                }
+            }
 
+            const isNumeric = numericValues.length / Math.max(nonEmptyCount, 1) > 0.8
+            
             metadata[param] = {
-                isNumeric: numericValues.length / values.length > 0.8,
-                states: [...new Set(values)].sort(), // Remove duplicates and sort for consistency
-                min:
-                    numericValues.length > 0
-                        ? Math.min(...numericValues.map((v) => parseFloat(v)))
-                        : 0,
-                max:
-                    numericValues.length > 0
-                        ? Math.max(...numericValues.map((v) => parseFloat(v)))
-                        : 1,
+                isNumeric,
+                states: isNumeric ? [] : [...new Set(values)].sort(),
+                min: numericValues.length > 0 ? Math.min(...numericValues) : 0,
+                max: numericValues.length > 0 ? Math.max(...numericValues) : 1,
+                valueCount: nonEmptyCount,
+                totalCount: data.length,
+                sparsityRatio: (data.length - nonEmptyCount) / data.length
             }
         })
+        
         setParameterMetadata(metadata)
-    }
+    }, [])
 
     const parseCSV = (csvString) => {
         const lines = csvString.split('\n').filter((line) => line.trim() !== '')
@@ -436,31 +632,39 @@ export default function FlightChart() {
         return filled
     }, [])
 
-    // Check if a parameter has sparse data (significant missing values)
+    // Check if a parameter has sparse data (significant missing values) - optimized
     const hasSparsityIssues = useCallback((data, param) => {
+        const metadata = parameterMetadata[param]
+        if (metadata && metadata.sparsityRatio !== undefined) {
+            return metadata.sparsityRatio > 0.2 // Use cached sparsity ratio
+        }
+        
+        // Fallback for missing metadata
         const totalRows = data.length
-        const validRows = data.filter((row) => {
-            const val = row[param]
-            // For both numeric and categorical, check if value exists and is not empty
-            return val !== '' && val !== null && val !== undefined
-        }).length
-
-        // Consider sparse if more than 20% of data is missing
+        let validRows = 0
+        for (let i = 0; i < totalRows; i++) {
+            const val = data[i][param]
+            if (val !== '' && val !== null && val !== undefined) {
+                validRows++
+            }
+        }
         return (totalRows - validRows) / totalRows > 0.2
-    }, [])
+    }, [parameterMetadata])
 
-    // Optimized parameter type checking using cached metadata
+    // Performance optimized parameter checking using cached metadata
     const isNumericParameter = useCallback(
         (param) => {
-            return parameterMetadata[param]?.isNumeric ?? true
+            const metadata = parameterMetadata[param]
+            return metadata ? metadata.isNumeric : true
         },
         [parameterMetadata],
     )
 
-    // Optimized categorical states retrieval using cached metadata
+    // Performance optimized categorical states retrieval using cached metadata
     const getCategoricalStates = useCallback(
         (param) => {
-            return parameterMetadata[param]?.states ?? []
+            const metadata = parameterMetadata[param]
+            return metadata ? metadata.states : []
         },
         [parameterMetadata],
     )
@@ -476,37 +680,32 @@ export default function FlightChart() {
         return { numericParams: numeric, categoricalParams: categorical }
     }, [selectedParameters, isNumericParameter])
 
-    // Memoize parameter grouping with search filtering - optimized
+    // Memoize parameter grouping with search filtering - heavily optimized
     const parameterGroups = useMemo(() => {
         const groups = {}
-        const processedParams = new Set() // Track processed parameters to avoid duplicates
-
+        
+        // Early return for empty parameters
+        if (parameters.length === 0) return groups
+        
         // Get the parameters to process (filtered or all)
         const paramsToProcess = debouncedSearchTerm
-            ? parameters.filter((param) =>
-                  param
-                      .toLowerCase()
-                      .includes(debouncedSearchTerm.toLowerCase()),
-              )
+            ? parameters.filter((param) => {
+                  const searchLower = debouncedSearchTerm.toLowerCase()
+                  return param.toLowerCase().includes(searchLower)
+              })
             : parameters
 
-        // Ensure no duplicates in the parameters to process
-        const uniqueParamsToProcess = [...new Set(paramsToProcess)]
-
-        uniqueParamsToProcess.forEach((param) => {
-            // Skip if already processed (prevents duplicates)
-            if (processedParams.has(param)) return
-
+        // Process parameters into groups
+        for (let i = 0; i < paramsToProcess.length; i++) {
+            const param = paramsToProcess[i]
             const parts = param.split(/[_\s]/)
             const groupName = parts.length > 1 ? parts[0] : 'General'
 
             if (!groups[groupName]) {
                 groups[groupName] = []
             }
-
             groups[groupName].push(param)
-            processedParams.add(param)
-        })
+        }
 
         return groups
     }, [parameters, debouncedSearchTerm])
@@ -589,67 +788,41 @@ export default function FlightChart() {
         [parameterMetadata, chartConfig],
     )
 
-    // Memoize chart configuration to prevent unnecessary recalculations
+    // Performance optimized chart configuration memoization
     const chartOption = useMemo(() => {
         if (selectedParameters.length === 0 || data.length === 0) return null
 
-        const colorPalette = [
-            '#4CAF50',
-            '#3F51B5',
-            '#FF9800',
-            '#F44336',
-            '#9C27B0',
-        ]
-        const generateLineColor = (index) =>
-            colorPalette[index % colorPalette.length]
+        // Cache frequently used values
+        const colorPalette = ['#4CAF50', '#3F51B5', '#FF9800', '#F44336', '#9C27B0']
+        const generateLineColor = (index) => colorPalette[index % colorPalette.length]
+        const totalParams = selectedParameters.length
+        const dataLength = data.length
 
-        // Calculate proper spacing with minimum chart height
+        // Optimized grid calculation
         const titleHeight = 8
-        const toolboxHeight = 6
+        const toolboxHeight = 6  
         const zoomHeight = 8
         const availableHeight = 100 - titleHeight - toolboxHeight - zoomHeight
-        const totalParams = selectedParameters.length
+        const minChartHeight = 15
+        const gridGap = 6
+        const gridHeight = Math.max(minChartHeight, Math.floor(availableHeight / totalParams) - gridGap)
 
-        // Set minimum height per chart (in percentage) and calculate if we need more space
-        const minChartHeight = 15 // Increased minimum height per chart for better visibility
-        const gridGap = 6 // Increased gap for better visual separation
-        const requiredHeight = totalParams * (minChartHeight + gridGap)
+        // Dynamic container height calculation
+        const calculatedContainerHeight = Math.max(600, totalParams * (minChartHeight * 8 + gridGap * 8) + 300)
 
-        // Always ensure adequate space for each parameter
-        const useMinimumHeight = requiredHeight > availableHeight
-        const gridHeight = useMinimumHeight
-            ? minChartHeight
-            : Math.max(
-                  minChartHeight,
-                  Math.floor(availableHeight / totalParams) - gridGap,
-              )
-
-        // Calculate actual container height needed
-        const calculatedContainerHeight = Math.max(
-            600, // Minimum container height
-            totalParams * (minChartHeight * 8 + gridGap * 8) + 300, // Dynamic height: each param gets adequate spacing
-        )
-
-        // Create grid configuration with adaptive positioning
+        // Pre-calculate grids for better performance
         const grids = selectedParameters.map((param, index) => {
-            // For many parameters, switch to absolute positioning to ensure all are visible
             if (totalParams > 6) {
-                const chartHeight = Math.max(
-                    120,
-                    Math.floor(
-                        (calculatedContainerHeight - 200) / totalParams,
-                    ) - 20,
-                )
-                const gapBetweenCharts = 25 // Fixed gap between charts
+                const chartHeight = Math.max(120, Math.floor((calculatedContainerHeight - 200) / totalParams) - 20)
+                const gapBetweenCharts = 25
                 return {
                     left: '8%',
                     right: '4%',
-                    top: `${100 + index * (chartHeight + gapBetweenCharts)}px`, // Absolute positioning with proper gaps
+                    top: `${100 + index * (chartHeight + gapBetweenCharts)}px`,
                     height: `${chartHeight}px`,
                     containLabel: false,
                 }
             } else {
-                // Use percentage for smaller numbers of parameters
                 return {
                     left: '8%',
                     right: '4%',
@@ -660,288 +833,192 @@ export default function FlightChart() {
             }
         })
 
-        // Optimize data processing - use cached metadata
-        const series = selectedParameters
-            .map((param, index) => {
-                const metadata = parameterMetadata[param]
-                if (!metadata) return null
+        // Performance optimized series generation
+        const series = []
+        for (let i = 0; i < selectedParameters.length; i++) {
+            const param = selectedParameters[i]
+            const metadata = parameterMetadata[param]
+            if (!metadata) continue
 
-                if (metadata.isNumeric) {
-                    // Numeric parameter - optimized data processing with filtering
-                    let processedData = data
-                    const config = getParameterConfig(param)
+            const config = chartConfig[param] || {}
+            
+            if (metadata.isNumeric) {
+                // Optimized numeric processing
+                let processedData = data
+                if (config.enableFiltering) {
+                    processedData = applyParameterFiltering(data, param, config)
+                }
 
-                    // Apply filtering if enabled
-                    if (config.enableFiltering) {
-                        processedData = applyParameterFiltering(
-                            data,
-                            param,
-                            config,
-                        )
-                    }
+                const needsInterpolation = metadata.sparsityRatio > 0.2 || config.forceInterpolation
+                const interpolationMethod = config.interpolationMethod || 'forward'
 
-                    // Check if parameter has sparsity issues and needs interpolation
-                    const needsInterpolation =
-                        hasSparsityIssues(processedData, param) ||
-                        config.forceInterpolation
-                    const interpolationMethod =
-                        config.interpolationMethod || 'forward' // Default to forward fill for flight data
-
-                    let numericData
-                    if (needsInterpolation && interpolationMethod !== 'none') {
-                        // Use interpolation for sparse data
-                        numericData = interpolateSparseData(
-                            processedData,
-                            param,
-                            interpolationMethod,
-                        )
-                    } else {
-                        // Standard processing for dense data
-                        numericData = processedData.map((row) => {
-                            const val = parseFloat(row[param])
-                            return isNaN(val) ? null : val
-                        })
-                    }
-
-                    return {
-                        name: param,
-                        type: 'line',
-                        showSymbol: false,
-                        lineStyle: {
-                            width: 1.5,
-                            color: generateLineColor(index),
-                        },
-                        smooth:
-                            needsInterpolation &&
-                            interpolationMethod === 'linear' &&
-                            config.smoothInterpolated !== false, // Only smooth for linear interpolation
-                        xAxisIndex: index,
-                        yAxisIndex: index,
-                        data: numericData,
-                        connectNulls: needsInterpolation, // Connect nulls for interpolated data
-                        large: data.length > 1000,
-                        largeThreshold: 1000,
-                    }
+                let numericData
+                if (needsInterpolation && interpolationMethod !== 'none') {
+                    numericData = interpolateSparseData(processedData, param, interpolationMethod)
                 } else {
-                    // Categorical parameter - step line chart for discrete states
-                    const states = [...new Set(metadata.states)].sort() // Remove duplicates and sort
-
-                    // Check if categorical parameter has sparsity issues
-                    const hasSparseCategoricalData = hasSparsityIssues(
-                        data,
-                        param,
-                    )
-
-                    // Handle sparse categorical data with forward fill
-                    let categoricalValues
-                    if (hasSparseCategoricalData) {
-                        categoricalValues = fillSparseCategoricalData(
-                            data,
-                            param,
-                        )
-                    } else {
-                        categoricalValues = data.map((row) => {
-                            const val = row[param]
-                            return val === '' ||
-                                val === null ||
-                                val === undefined
-                                ? null
-                                : val
-                        })
-                    }
-
-                    // Pre-build state index map for faster lookup
-                    const stateMap = new Map()
-                    states.forEach((state, idx) => stateMap.set(state, idx))
-
-                    // Convert categorical data to numeric indices for step line
-                    const stepData = categoricalValues.map((value, idx) => {
-                        const stateIndex = stateMap.get(value)
-                        return stateIndex !== undefined ? stateIndex : null
-                    })
-
-                    return {
-                        name: param,
-                        type: 'line',
-                        step: 'end', // Creates step line effect - horizontal then vertical
-                        showSymbol: false,
-                        lineStyle: {
-                            width: 2,
-                            color: generateLineColor(index),
-                        },
-                        // Remove areaStyle to eliminate shading
-                        xAxisIndex: index,
-                        yAxisIndex: index,
-                        data: stepData,
-                        connectNulls: false,
-                        large: data.length > 1000,
-                        largeThreshold: 1000,
+                    // Optimized standard processing
+                    numericData = new Array(dataLength)
+                    for (let j = 0; j < dataLength; j++) {
+                        const val = parseFloat(processedData[j][param])
+                        numericData[j] = isNaN(val) ? null : val
                     }
                 }
-            })
-            .filter(Boolean)
 
-        // Create optimized x-axis
-        const xAxis = selectedParameters.map((param, index) => {
-            const interval = Math.max(1, Math.floor(data.length / 10))
-            return {
-                type: 'category',
-                data: data.map((row, idx) => idx),
-                gridIndex: index,
-                axisLabel: {
-                    show: index === selectedParameters.length - 1,
-                    fontSize: 10,
-                    color: '#666',
-                    interval: interval,
-                },
-                axisTick: {
-                    show: index === selectedParameters.length - 1,
-                    length: 3,
-                    interval: interval,
-                },
-                axisLine: {
-                    show: index === selectedParameters.length - 1,
-                    lineStyle: { color: '#ddd' },
-                },
-                splitLine: { show: false },
+                series.push({
+                    name: param,
+                    type: 'line',
+                    showSymbol: false,
+                    lineStyle: { width: 1.5, color: generateLineColor(i) },
+                    smooth: needsInterpolation && interpolationMethod === 'linear' && config.smoothInterpolated !== false,
+                    xAxisIndex: i,
+                    yAxisIndex: i,
+                    data: numericData,
+                    connectNulls: needsInterpolation,
+                    large: dataLength > 1000,
+                    largeThreshold: 1000,
+                })
+            } else {
+                // Optimized categorical processing
+                const states = metadata.states
+                const hasSparseCategoricalData = metadata.sparsityRatio > 0.2
+
+                let categoricalValues
+                if (hasSparseCategoricalData) {
+                    categoricalValues = fillSparseCategoricalData(data, param)
+                } else {
+                    categoricalValues = new Array(dataLength)
+                    for (let j = 0; j < dataLength; j++) {
+                        const val = data[j][param]
+                        categoricalValues[j] = (val === '' || val === null || val === undefined) ? null : val
+                    }
+                }
+
+                // Pre-build state index map for faster lookup
+                const stateMap = new Map()
+                states.forEach((state, idx) => stateMap.set(state, idx))
+
+                // Convert categorical data to numeric indices
+                const stepData = new Array(dataLength)
+                for (let j = 0; j < dataLength; j++) {
+                    const stateIndex = stateMap.get(categoricalValues[j])
+                    stepData[j] = stateIndex !== undefined ? stateIndex : null
+                }
+
+                series.push({
+                    name: param,
+                    type: 'line',
+                    step: 'end',
+                    showSymbol: false,
+                    lineStyle: { width: 2, color: generateLineColor(i) },
+                    xAxisIndex: i,
+                    yAxisIndex: i,
+                    data: stepData,
+                    connectNulls: false,
+                    large: dataLength > 1000,
+                    largeThreshold: 1000,
+                })
             }
-        })
+        }
 
-        // Create optimized y-axis using cached metadata
-        const yAxis = selectedParameters
-            .map((param, index) => {
-                const metadata = parameterMetadata[param]
-                if (!metadata) return null
+        // Optimized x-axis generation
+        const interval = Math.max(1, Math.floor(dataLength / 10))
+        const xAxisData = new Array(dataLength)
+        for (let i = 0; i < dataLength; i++) {
+            xAxisData[i] = i
+        }
+        
+        const xAxis = selectedParameters.map((param, index) => ({
+            type: 'category',
+            data: xAxisData,
+            gridIndex: index,
+            axisLabel: {
+                show: index === selectedParameters.length - 1,
+                fontSize: 10,
+                color: '#666',
+                interval: interval,
+            },
+            axisTick: {
+                show: index === selectedParameters.length - 1,
+                length: 3,
+                interval: interval,
+            },
+            axisLine: {
+                show: index === selectedParameters.length - 1,
+                lineStyle: { color: '#ddd' },
+            },
+            splitLine: { show: false },
+        }))
 
-                const generateLineColor = (index) =>
-                    colorPalette[index % colorPalette.length]
+        // Optimized y-axis generation  
+        const yAxis = selectedParameters.map((param, index) => {
+            const metadata = parameterMetadata[param]
+            if (!metadata) return null
 
-                if (metadata.isNumeric) {
-                    const config = getParameterConfig(param)
-                    const useCustomRange =
-                        config.customRange && config.useCustomRange
-                    const paramColor = generateLineColor(index)
+            const paramColor = generateLineColor(index)
 
-                    const minValue = useCustomRange ? config.customRange.min : metadata.min
-                    const maxValue = useCustomRange ? config.customRange.max : metadata.max
+            if (metadata.isNumeric) {
+                const config = chartConfig[param] || {}
+                const useCustomRange = config.customRange && config.useCustomRange
+                const minValue = useCustomRange ? config.customRange.min : metadata.min
+                const maxValue = useCustomRange ? config.customRange.max : metadata.max
 
-                    return {
-                        type: 'value',
-                        name: param,
-                        gridIndex: index,
-                        nameLocation: 'end',
-                        nameRotate: 0,
-                        nameGap: 10,
-                        nameTextStyle: {
-                            color: paramColor,
-                            fontSize: 10,
-                            fontWeight: 'bold',
-                            align: 'left',
-                        },
-                        min: minValue,
-                        max: maxValue,
-                        splitNumber: 2, // Only show min and max
-                        interval: (maxValue - minValue), // Force only min and max to be shown
-                        axisLabel: {
-                            fontSize: 9,
-                            color: paramColor,
-                            formatter: (value) => {
-                                if (Math.abs(value) >= 1000) {
-                                    return (value / 1000).toFixed(1) + 'k'
-                                }
-                                return value.toFixed(2)
-                            },
-                        },
-                        axisLine: { show: true, lineStyle: { color: paramColor } },
-                        axisTick: {
-                            show: true,
-                            length: 3,
-                            lineStyle: { color: paramColor },
-                            interval: 0, // Show ticks only at min and max
-                        },
-                        splitLine: {
-                            show: true,
-                            lineStyle: {
-                                type: 'solid',
-                                color: paramColor,
-                                opacity: 0.2,
-                            },
-                            interval: 0, // Show split lines only at min and max
-                        },
-                    }
-                } else {
-                    const states = [...new Set(metadata.states)].sort() // Remove duplicates and sort
-                    const paramColor = generateLineColor(index)
-                    
-                    return {
-                        type: 'value',
-                        name: param,
-                        gridIndex: index,
-                        nameLocation: 'end',
-                        nameRotate: 0,
-                        nameGap: 10,
-                        nameTextStyle: {
-                            color: paramColor,
-                            fontSize: 10,
-                            fontWeight: 'bold',
-                            align: 'left',
-                        },
-                        min: 0, // Start from 0 for proper alignment
-                        max: states.length - 1, // End at length-1 for proper alignment
-                        interval: 1, // Ensure integer intervals
-                        splitNumber: states.length,
-                        axisLabel: {
-                            fontSize: 9,
-                            color: paramColor,
-                            formatter: (value) => {
-                                const stateIndex = Math.round(value)
-                                if (
-                                    stateIndex >= 0 &&
-                                    stateIndex < states.length
-                                ) {
-                                    return states[stateIndex]
-                                }
-                                return ''
-                            },
-                        },
-                        axisLine: { show: true, lineStyle: { color: paramColor } },
-                        axisTick: {
-                            show: true,
-                            length: 3,
-                            lineStyle: { color: paramColor },
-                            interval: 0, // Show tick for each state
-                            alignWithLabel: true, // Align ticks with labels
-                        },
-                        splitLine: {
-                            show: true,
-                            lineStyle: {
-                                type: 'dashed',
-                                color: paramColor,
-                                opacity: 0.3,
-                            },
-                            interval: 0, // Show grid line for each state
-                        },
-                    }
+                return {
+                    type: 'value',
+                    name: param,
+                    gridIndex: index,
+                    nameLocation: 'end',
+                    nameRotate: 0,
+                    nameGap: 10,
+                    nameTextStyle: { color: paramColor, fontSize: 10, fontWeight: 'bold', align: 'left' },
+                    min: minValue,
+                    max: maxValue,
+                    splitNumber: 2,
+                    interval: (maxValue - minValue),
+                    axisLabel: {
+                        fontSize: 9,
+                        color: paramColor,
+                        formatter: (value) => Math.abs(value) >= 1000 ? (value / 1000).toFixed(1) + 'k' : value.toFixed(2),
+                    },
+                    axisLine: { show: true, lineStyle: { color: paramColor } },
+                    axisTick: { show: true, length: 3, lineStyle: { color: paramColor }, interval: 0 },
+                    splitLine: { show: true, lineStyle: { type: 'solid', color: paramColor, opacity: 0.2 }, interval: 0 },
                 }
-            })
-            .filter(Boolean)
-        //Flight Data - ${flightData?.fileName || 'Uploaded File'}
+            } else {
+                const states = metadata.states
+                return {
+                    type: 'value',
+                    name: param,
+                    gridIndex: index,
+                    nameLocation: 'end', 
+                    nameRotate: 0,
+                    nameGap: 10,
+                    nameTextStyle: { color: paramColor, fontSize: 10, fontWeight: 'bold', align: 'left' },
+                    min: 0,
+                    max: states.length - 1,
+                    interval: 1,
+                    splitNumber: states.length,
+                    axisLabel: {
+                        fontSize: 9,
+                        color: paramColor,
+                        formatter: (value) => {
+                            const stateIndex = Math.round(value)
+                            return (stateIndex >= 0 && stateIndex < states.length) ? states[stateIndex] : ''
+                        },
+                    },
+                    axisLine: { show: true, lineStyle: { color: paramColor } },
+                    axisTick: { show: true, length: 3, lineStyle: { color: paramColor }, interval: 0, alignWithLabel: true },
+                    splitLine: { show: true, lineStyle: { type: 'dashed', color: paramColor, opacity: 0.3 }, interval: 0 },
+                }
+            }
+        }).filter(Boolean)
+
         return {
             backgroundColor: '#fff',
             animation: false, // Disable animation for better performance
-            title: {
-                text: ``,
-                left: 'center',
-                top: '1%',
-                textStyle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
-            },
+            title: { text: ``, left: 'center', top: '1%', textStyle: { fontSize: 16, fontWeight: 'bold', color: '#333' } },
             tooltip: {
                 trigger: 'axis',
-                axisPointer: {
-                    type: 'line',
-                    link: { xAxisIndex: 'all' },
-                    lineStyle: { color: '#666', type: 'dashed' },
-                },
+                axisPointer: { type: 'line', link: { xAxisIndex: 'all' }, lineStyle: { color: '#666', type: 'dashed' } },
                 backgroundColor: 'rgba(0,0,0,0.8)',
                 textStyle: { color: '#fff', fontSize: 12 },
                 formatter: function (params) {
@@ -949,39 +1026,18 @@ export default function FlightChart() {
 
                     let tooltipContent = `<div><strong>Sample: ${params[0].dataIndex}</strong></div>`
 
-                    params.forEach((param, paramIndex) => {
+                    params.forEach((param) => {
                         const paramName = param.seriesName
                         const metadata = parameterMetadata[paramName]
-                        // Use the same color generation logic as the chart
-                        const colorPalette = [
-                            '#4CAF50',
-                            '#3F51B5',
-                            '#FF9800',
-                            '#F44336',
-                            '#9C27B0',
-                        ]
-                        const selectedParamIndex =
-                            selectedParameters.indexOf(paramName)
-                        const paramColor =
-                            colorPalette[
-                                selectedParamIndex % colorPalette.length
-                            ]
+                        const selectedParamIndex = selectedParameters.indexOf(paramName)
+                        const paramColor = colorPalette[selectedParamIndex % colorPalette.length]
 
                         if (metadata && !metadata.isNumeric) {
-                            // For categorical parameters, show the actual state name
                             const stateIndex = Math.round(param.value)
-                            const cleanedStates = [
-                                ...new Set(metadata.states),
-                            ].sort()
-                            const stateName =
-                                cleanedStates[stateIndex] || 'Unknown'
+                            const stateName = metadata.states[stateIndex] || 'Unknown'
                             tooltipContent += `<div>${paramName}: <span style="color:${paramColor}">${stateName}</span></div>`
                         } else {
-                            // For numeric parameters, show the value
-                            const value =
-                                param.value !== null
-                                    ? param.value.toFixed(2)
-                                    : 'N/A'
+                            const value = param.value !== null ? param.value.toFixed(2) : 'N/A'
                             tooltipContent += `<div>${paramName}: <span style="color:${paramColor}">${value}</span></div>`
                         }
                     })
@@ -996,15 +1052,12 @@ export default function FlightChart() {
                 right: 15,
                 top: 35,
                 feature: {
-                    dataZoom: {
-                        yAxisIndex: 'none',
-                        title: { zoom: 'Zoom', back: 'Reset Zoom' },
-                    },
+                    dataZoom: { yAxisIndex: 'none', title: { zoom: 'Zoom', back: 'Reset Zoom' } },
                     restore: { title: 'Restore' },
                     saveAsImage: {
                         name: `Flight_Data_${flightData?.fileName?.replace(/\.[^/.]+$/, '') || 'Chart'}`,
                         title: 'Save as Image',
-                        pixelRatio: 2, // Higher resolution for better quality
+                        pixelRatio: 2,
                     },
                     myPrint: {
                         show: true,
@@ -1042,22 +1095,35 @@ export default function FlightChart() {
         parameterMetadata,
         flightData?.fileName,
         chartConfig,
-        getParameterConfig,
         applyParameterFiltering,
+        interpolateSparseData,
+        fillSparseCategoricalData,
     ])
 
+    // Performance optimized chart effect with proper cleanup
     useEffect(() => {
         if (!chartOption) return
 
         const chartDom = document.getElementById('main')
         if (!chartDom) return
 
+        // Dispose previous chart instance
+        if (chartInstanceRef.current) {
+            chartInstanceRef.current.dispose()
+        }
+
+        // Create new chart instance with performance optimizations
         const myChart = echarts.init(chartDom, null, {
             renderer: 'svg', // Use SVG for better print quality
             useDirtyRect: true, // Enable dirty rectangle optimization
+            devicePixelRatio: 1, // Optimize for performance
         })
 
-        myChart.setOption(chartOption, true)
+        chartInstanceRef.current = myChart
+        myChart.setOption(chartOption, {
+            notMerge: true, // Don't merge with previous option for better performance
+            lazyUpdate: true, // Batch updates for better performance
+        })
 
         // Add print functionality to window
         window.printChart = () => {
@@ -1114,12 +1180,11 @@ export default function FlightChart() {
                 }
             }
 
-            // Generate chart pages
+            // Generate chart pages with optimizations
             const chartPages = []
 
             for (let pageIndex = 0; pageIndex < finalPageParams.length; pageIndex++) {
                 const pageParams = finalPageParams[pageIndex]
-                
                 const chartsOnThisPage = pageParams.length
                 
                 // Create an extended selectedParameters array that includes focus parameter if it's in the data
@@ -1215,60 +1280,54 @@ export default function FlightChart() {
                 // Create a print-specific chart configuration for this page
                 const printChartOption = {
                     ...extendedChartOption,
-                    // Remove toolbox (zoom, refresh, download controls)
+                    // Remove toolbox and dataZoom for print
                     toolbox: null,
-                    // Remove dataZoom controls
                     dataZoom: null,
-                    // Adjust layout for print without toolbox and header
-                    title: null, // Remove title/header completely for more space
+                    title: null,
                     // Show parameters for this page only with adjusted indices
                     series: extendedChartOption.series
                         ? pageParamIndices.map((originalIndex, newIndex) => ({
                                   ...extendedChartOption.series[originalIndex],
-                                  xAxisIndex: newIndex, // Reset to 0-based indexing for this page
-                                  yAxisIndex: newIndex, // Reset to 0-based indexing for this page
-                                  gridIndex: newIndex, // Reset to 0-based gridIndex for this page
+                                  xAxisIndex: newIndex,
+                                  yAxisIndex: newIndex,
+                                  gridIndex: newIndex,
                               }))
                         : [],
                     // Slice and reset the xAxis and yAxis to match the grid indices
                     xAxis: extendedChartOption.xAxis
                         ? pageParamIndices.map((originalIndex, newIndex) => ({
                                   ...extendedChartOption.xAxis[originalIndex],
-                                  gridIndex: newIndex, // Reset gridIndex to 0-based for this page
+                                  gridIndex: newIndex,
                                   axisLabel: {
                                       ...extendedChartOption.xAxis[originalIndex].axisLabel,
-                                      show: newIndex === chartsOnThisPage - 1, // Show x-axis labels on the last chart of each page
+                                      show: newIndex === chartsOnThisPage - 1,
                                   },
                                   axisTick: {
                                       ...extendedChartOption.xAxis[originalIndex].axisTick,
-                                      show: newIndex === chartsOnThisPage - 1, // Show x-axis ticks on the last chart of each page
+                                      show: newIndex === chartsOnThisPage - 1,
                                   },
                                   axisLine: {
                                       ...extendedChartOption.xAxis[originalIndex].axisLine,
-                                      show: newIndex === chartsOnThisPage - 1, // Show x-axis line on the last chart of each page
+                                      show: newIndex === chartsOnThisPage - 1,
                                   },
                               }))
                         : [],
                     yAxis: extendedChartOption.yAxis
                         ? pageParamIndices.map((originalIndex, newIndex) => ({
                                   ...extendedChartOption.yAxis[originalIndex],
-                                  gridIndex: newIndex, // Reset gridIndex to 0-based for this page
+                                  gridIndex: newIndex,
                               }))
                         : [],
-                    // Recalculate grid positions for print - 6 graphs max per page or less for last page
+                    // Recalculate grid positions for print
                     grid: pageParams.map((param, index) => {
-                        // Optimized positioning for charts with professional header
-                        const topMargin = 8 // Margin for professional header space
-                        const availablePrintHeight = 88 // Available height with header space
-                        const printGridHeight =
-                            Math.floor(
-                                availablePrintHeight / chartsOnThisPage,
-                            ) - 2.5 // Divide space evenly among charts on this page
-                        const printGapBetweenCharts = 4 // Restored gap between charts for better readability
+                        const topMargin = 8
+                        const availablePrintHeight = 88
+                        const printGridHeight = Math.floor(availablePrintHeight / chartsOnThisPage) - 2.5
+                        const printGapBetweenCharts = 4
 
                         return {
-                            left: '2%', // Minimal left margin for maximum chart width
-                            right: '1%', // Minimal right margin for maximum chart width
+                            left: '2%',
+                            right: '1%',
                             top: `${topMargin + index * (printGridHeight + printGapBetweenCharts)}%`,
                             height: `${printGridHeight}%`,
                             containLabel: false,
@@ -1276,10 +1335,10 @@ export default function FlightChart() {
                     }),
                 }
 
-                // Create a temporary chart for print rendering
+                // Create a temporary chart for print rendering - optimized
                 const printChartDom = document.createElement('div')
                 printChartDom.style.width = '1200px'
-                printChartDom.style.height = '850px' // Increased height for larger charts
+                printChartDom.style.height = '850px'
                 printChartDom.style.position = 'absolute'
                 printChartDom.style.left = '-9999px'
                 document.body.appendChild(printChartDom)
@@ -1287,9 +1346,13 @@ export default function FlightChart() {
                 const printChart = echarts.init(printChartDom, null, {
                     renderer: 'svg',
                     useDirtyRect: false,
+                    devicePixelRatio: 1,
                 })
 
-                printChart.setOption(printChartOption, true)
+                printChart.setOption(printChartOption, {
+                    notMerge: true,
+                    lazyUpdate: false,
+                })
 
                 // Get clean SVG without controls
                 const chartSVG = printChart.renderToSVGString()
@@ -1307,7 +1370,7 @@ export default function FlightChart() {
                 })
             }
 
-            // Create the print HTML content with professional header matching the reference image
+            // Rest of print logic remains the same...
             const currentDate = new Date()
             const dateStr = currentDate.toLocaleDateString('en-US', {
                 month: 'numeric',
@@ -1328,211 +1391,32 @@ export default function FlightChart() {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Flight Data Analysis - ${analystInfo.aircraft}</title>
   <style>
-    * {
-      box-sizing: border-box;
-    }
-    
-    @page {
-      size: A4 landscape;
-      margin: 8mm;
-    }
-    
-    html, body {
-      margin: 0;
-      padding: 0;
-      font-family: 'Arial', sans-serif;
-      background: white;
-      color: #000;
-      line-height: 1.2;
-      font-size: 11px;
-    }
-    
-    .print-container {
-      width: 100%;
-      max-width: 100%;
-      padding: 0;
-      margin: 0;
-    }
-    
-    .chart-page {
-      page-break-before: always;
-      page-break-after: always;
-      page-break-inside: avoid;
-      height: 100vh;
-      position: relative;
-    }
-    
-    .chart-page:first-child {
-      page-break-before: auto;
-    }
-    
-    .professional-header {
-      width: 100%;
-      padding-bottom: 3px;
-      margin-bottom: 8px;
-      font-size: 11px;
-      font-weight: normal;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    
-    .header-left {
-      text-align: left;
-      flex: 1;
-    }
-    
-    .header-center {
-      text-align: center;
-      flex: 1;
-      font-weight: normal;
-    }
-    
-    .header-right {
-      text-align: right;
-      flex: 1;
-    }
-    
-    .chart-container {
-      width: 100%;
-      text-align: center;
-      page-break-inside: avoid;
-      page-break-before: auto;
-      page-break-after: avoid;
-      height: 88vh;
-      max-height: 88vh;
-      margin-top: 0;
-    }
-    
-    .chart-container svg {
-      max-width: 100%;
-      height: 100%;
-      max-height: 100%;
-      display: block;
-      margin: 0 auto;
-      page-break-inside: avoid;
-    }
-    
-    .parameters-section {
-      margin-top: 20px;
-      page-break-before: always;
-      page-break-inside: avoid;
-    }
-    
-    .parameters-section h3 {
-      margin: 0 0 12px 0;
-      font-size: 14px;
-      color: #000;
-      font-weight: bold;
-      border-bottom: 1px solid #000;
-      padding-bottom: 4px;
-    }
-    
-    .parameters-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 6px;
-      margin-bottom: 15px;
-    }
-    
-    .parameter-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
-      background: #f8f9fa;
-      border: 1px solid #ddd;
-      border-radius: 3px;
-      font-size: 10px;
-      page-break-inside: avoid;
-    }
-    
-    .color-indicator {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      border: 1px solid #666;
-      flex-shrink: 0;
-    }
-    
-    .parameter-name {
-      font-weight: bold;
-      color: #000;
-    }
-    
-    .parameter-unit {
-      color: #666;
-      font-style: italic;
-    }
-    
-    .parameter-type {
-      color: #666;
-      font-size: 9px;
-      font-weight: normal;
-    }
-    
-    /* Print-specific optimizations */
+    * { box-sizing: border-box; }
+    @page { size: A4 landscape; margin: 8mm; }
+    html, body { margin: 0; padding: 0; font-family: 'Arial', sans-serif; background: white; color: #000; line-height: 1.2; font-size: 11px; }
+    .print-container { width: 100%; max-width: 100%; padding: 0; margin: 0; }
+    .chart-page { page-break-before: always; page-break-after: always; page-break-inside: avoid; height: 100vh; position: relative; }
+    .chart-page:first-child { page-break-before: auto; }
+    .professional-header { width: 100%; padding-bottom: 3px; margin-bottom: 8px; font-size: 11px; font-weight: normal; display: flex; justify-content: space-between; align-items: center; }
+    .header-left { text-align: left; flex: 1; }
+    .header-center { text-align: center; flex: 1; font-weight: normal; }
+    .header-right { text-align: right; flex: 1; }
+    .chart-container { width: 100%; text-align: center; page-break-inside: avoid; page-break-before: auto; page-break-after: avoid; height: 88vh; max-height: 88vh; margin-top: 0; }
+    .chart-container svg { max-width: 100%; height: 100%; max-height: 100%; display: block; margin: 0 auto; page-break-inside: avoid; }
     @media print {
-      html, body {
-        background: white !important;
-        -webkit-print-color-adjust: exact !important;
-        color-adjust: exact !important;
-        print-color-adjust: exact !important;
-      }
-      
-      .print-container {
-        padding: 0 !important;
-        margin: 0 !important;
-      }
-      
-      .chart-page {
-        page-break-before: always !important;
-        page-break-after: always !important;
-        page-break-inside: avoid !important;
-        height: 100vh !important;
-      }
-      
-      .chart-page:first-child {
-        page-break-before: auto !important;
-      }
-      
-      .chart-container {
-        page-break-inside: avoid !important;
-        page-break-before: auto !important;
-        page-break-after: avoid !important;
-        height: 88vh !important;
-        max-height: 88vh !important;
-        margin-top: 0 !important;
-      }
-      
-      .parameters-section {
-        page-break-before: always !important;
-        page-break-inside: avoid !important;
-      }
-      
-      @page {
-        margin: 8mm !important;
-        size: A4 landscape !important;
-      }
-      
-      .parameter-item {
-        page-break-inside: avoid !important;
-        orphans: 2;
-        widows: 2;
-      }
-      
-      .chart-container svg {
-        height: 100% !important;
-        max-height: 100% !important;
-      }
+      html, body { background: white !important; -webkit-print-color-adjust: exact !important; color-adjust: exact !important; print-color-adjust: exact !important; }
+      .print-container { padding: 0 !important; margin: 0 !important; }
+      .chart-page { page-break-before: always !important; page-break-after: always !important; page-break-inside: avoid !important; height: 100vh !important; }
+      .chart-page:first-child { page-break-before: auto !important; }
+      .chart-container { page-break-inside: avoid !important; page-break-before: auto !important; page-break-after: avoid !important; height: 88vh !important; max-height: 88vh !important; margin-top: 0 !important; }
+      @page { margin: 8mm !important; size: A4 landscape !important; }
+      .chart-container svg { height: 100% !important; max-height: 100% !important; }
     }
   </style>
 </head>
 <body>
   <div class="print-container">
-    ${chartPages
-        .map(
-            (page, pageIndex) => `
+    ${chartPages.map((page, pageIndex) => `
       <div class="chart-page">
         <div class="professional-header">
           <div class="header-left">ANALYST: ${analystInfo.name}</div>
@@ -1543,38 +1427,24 @@ export default function FlightChart() {
           ${page.svg}
         </div>
       </div>
-    `,
-        )
-        .join('')}
-    
+    `).join('')}
   </div>
   
   <script>
-    // Ensure the content is fully loaded before printing
     function initiatePrint() {
-      // Give the SVG time to render properly
       setTimeout(() => {
-        // Focus the window to ensure print dialog appears
         window.focus();
-        
-        // Trigger print
         window.print();
-        
-        // Close window after printing (with a delay for user to complete printing)
-        setTimeout(() => {
-          window.close();
-        }, 2000);
+        setTimeout(() => { window.close(); }, 2000);
       }, 1000);
     }
     
-    // Wait for all content to load
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', initiatePrint);
     } else {
       initiatePrint();
     }
     
-    // Fallback: also trigger on window load
     window.addEventListener('load', () => {
       setTimeout(initiatePrint, 500);
     });
@@ -1588,7 +1458,13 @@ export default function FlightChart() {
             printWindow.document.close()
         }
 
-        const handleResize = () => myChart.resize()
+        // Performance optimized resize handler
+        const handleResize = () => {
+            if (chartInstanceRef.current) {
+                chartInstanceRef.current.resize()
+            }
+        }
+        
         window.addEventListener('resize', handleResize)
 
         return () => {
@@ -1597,7 +1473,10 @@ export default function FlightChart() {
             if (window.printChart) {
                 delete window.printChart
             }
-            myChart.dispose()
+            if (chartInstanceRef.current) {
+                chartInstanceRef.current.dispose()
+                chartInstanceRef.current = null
+            }
         }
     }, [
         chartOption,
@@ -1607,6 +1486,8 @@ export default function FlightChart() {
         units,
         parameters,
         parameterMetadata,
+        globalConfig,
+        analystInfo,
     ])
 
     // Group parameters by category (assuming parameter names follow a pattern)
@@ -1652,20 +1533,15 @@ export default function FlightChart() {
         })
     }, [])
 
-    const getParameterColor = useCallback(
-        (param) => {
+    // Performance optimized parameter color function with memoization
+    const getParameterColor = useMemo(() => {
+        const colorPalette = ['#4CAF50', '#3F51B5', '#FF9800', '#F44336', '#9C27B0']
+        
+        return (param) => {
             const index = parameters.indexOf(param)
-            const colorPalette = [
-                '#4CAF50',
-                '#3F51B5',
-                '#FF9800',
-                '#F44336',
-                '#9C27B0',
-            ]
             return colorPalette[index % colorPalette.length]
-        },
-        [parameters],
-    )
+        }
+    }, [parameters])
 
     // Clear search when no results
     const clearSearch = useCallback(() => {
@@ -1679,23 +1555,28 @@ export default function FlightChart() {
         setSearchTerm(value)
     }, [])
 
-    // Optimized highlight function
+    // Optimized highlight function with unique keys
     const getHighlightedName = useCallback((param, searchTerm) => {
         if (!searchTerm) return param
 
         const parts = param.split(new RegExp(`(${searchTerm})`, 'gi'))
-        return parts.map((part, index) =>
-            part.toLowerCase() === searchTerm.toLowerCase() ? (
-                <span
-                    key={`${param}-highlight-${index}`}
-                    className="bg-yellow-200 text-yellow-800"
-                >
-                    {part}
-                </span>
-            ) : (
-                <span key={`${param}-normal-${index}`}>{part}</span>
-            ),
-        )
+        return parts
+            .filter(part => part.length > 0) // Filter out empty parts
+            .map((part, index) => {
+                const isHighlight = part.toLowerCase() === searchTerm.toLowerCase()
+                const uniqueKey = `${param}-${index}-${isHighlight ? 'h' : 'n'}-${part.length}-${part.slice(0, 3)}`
+                
+                return isHighlight ? (
+                    <span
+                        key={uniqueKey}
+                        className="bg-yellow-200 text-yellow-800"
+                    >
+                        {part}
+                    </span>
+                ) : (
+                    <span key={uniqueKey}>{part}</span>
+                )
+            })
     }, [])
 
     return (
