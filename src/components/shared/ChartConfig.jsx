@@ -8,7 +8,10 @@ export default function ChartConfig({
   updateParameterConfig, 
   resetParameterConfig,
   isVisible, 
-  onClose 
+  onClose,
+  parameters, // All available parameters
+  globalConfig = {}, // Global configuration
+  updateGlobalConfig // Function to update global config
 }) {
   const [activeTab, setActiveTab] = useState(selectedParameters[0] || '')
 
@@ -113,11 +116,71 @@ export default function ChartConfig({
 
           {/* Configuration Panel */}
           <div className="flex-1 p-6 overflow-y-auto">
+            {/* Global Settings Section */}
+            <div className="space-y-6 mb-8">
+              <div>
+                <h4 className="text-lg font-medium text-gray-900 mb-2">Print Configuration</h4>
+                <p className="text-sm text-gray-600">Global settings for chart printing and layout</p>
+              </div>
+
+              {/* Focus Parameter Setting */}
+              <div className="border border-gray-200 rounded-lg p-4 bg-blue-50">
+                <div className="mb-4">
+                  <h5 className="font-medium text-gray-900 mb-2">Focus Parameter</h5>
+                  <p className="text-sm text-gray-600 mb-3">
+                    Select a parameter to appear as the last chart on every printed page. This is useful for key parameters like airspeed that should always be visible for reference.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="flex items-center mb-3">
+                      <input
+                        type="checkbox"
+                        checked={globalConfig.enableFocusParameter || false}
+                        onChange={(e) => updateGlobalConfig && updateGlobalConfig({
+                          enableFocusParameter: e.target.checked
+                        })}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="ml-2 text-sm font-medium text-gray-700">Enable Focus Parameter</span>
+                    </label>
+                  </div>
+
+                  {globalConfig.enableFocusParameter && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Select Focus Parameter
+                      </label>
+                      <select
+                        value={globalConfig.focusParameter || ''}
+                        onChange={(e) => updateGlobalConfig && updateGlobalConfig({
+                          focusParameter: e.target.value
+                        })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">-- Select Parameter --</option>
+                        {parameters && parameters.map(param => (
+                          <option key={param} value={param}>
+                            {param} {parameterMetadata[param]?.isNumeric ? '(Numeric)' : '(Categorical)'}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-600 mt-1">
+                        This parameter will appear as the last chart on every printed page (up to 5 other charts + focus parameter per page)
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Individual Parameter Settings */}
             {activeTab && (
               <div className="space-y-6">
-                <div>
+                <div className="border-t border-gray-200 pt-6">
                   <h4 className="text-lg font-medium text-gray-900 mb-2">{activeTab}</h4>
-                  <p className="text-sm text-gray-600">Configure display properties and filtering options</p>
+                  <p className="text-sm text-gray-600">Configure display properties and filtering options for this parameter</p>
                 </div>
 
                 {parameterMetadata[activeTab]?.isNumeric && (

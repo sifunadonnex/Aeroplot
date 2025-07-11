@@ -24,6 +24,10 @@ export default function FlightChart() {
     const [showProgress, setShowProgress] = useState(false) // Show progress modal
     const [chartConfig, setChartConfig] = useState({}) // Custom chart configuration per parameter
     const [showChartConfig, setShowChartConfig] = useState(false) // Show chart config panel
+    const [globalConfig, setGlobalConfig] = useState({
+        enableFocusParameter: false,
+        focusParameter: 'Airspeed_Comp_Vtd' // Default focus parameter
+    }) // Global chart configuration
     const [analystInfo, setAnalystInfo] = useState({
         name: '',
         aircraft: '',
@@ -47,6 +51,16 @@ export default function FlightChart() {
                 console.error('Error loading saved analyst info:', error)
             }
         }
+        
+        // Load global config from localStorage
+        const savedGlobalConfig = localStorage.getItem('aeroplot-global-config')
+        if (savedGlobalConfig) {
+            try {
+                setGlobalConfig(JSON.parse(savedGlobalConfig))
+            } catch (error) {
+                console.error('Error loading global config:', error)
+            }
+        }
     }, [])
 
     // Save analyst info to localStorage with debouncing to improve performance
@@ -64,6 +78,11 @@ export default function FlightChart() {
 
         return () => clearTimeout(timer)
     }, [analystInfo.name, analystInfo.aircraft, analystInfo.partNumber, analystInfo.serialNumber])
+
+    // Save global config to localStorage
+    useEffect(() => {
+        localStorage.setItem('aeroplot-global-config', JSON.stringify(globalConfig))
+    }, [globalConfig])
 
     // Optimized analyst info update handler
     const handleAnalystInfoChange = useCallback((key, value) => {
@@ -471,7 +490,10 @@ export default function FlightChart() {
               )
             : parameters
 
-        paramsToProcess.forEach((param) => {
+        // Ensure no duplicates in the parameters to process
+        const uniqueParamsToProcess = [...new Set(paramsToProcess)]
+
+        uniqueParamsToProcess.forEach((param) => {
             // Skip if already processed (prevents duplicates)
             if (processedParams.has(param)) return
 
@@ -520,6 +542,14 @@ export default function FlightChart() {
         },
         [chartConfig],
     )
+
+    // Global configuration functions
+    const updateGlobalConfig = useCallback((config) => {
+        setGlobalConfig((prev) => ({
+            ...prev,
+            ...config,
+        }))
+    }, [])
 
     // Apply outlier filtering and range limiting
     const applyParameterFiltering = useCallback(
@@ -1045,27 +1075,146 @@ export default function FlightChart() {
 
             // Calculate how many pages we need (6 charts per page)
             const chartsPerPage = 6
-            const totalParams = selectedParameters.length
-            const totalPages = Math.ceil(totalParams / chartsPerPage)
+            
+            // Get focus parameter from global config
+            const focusParam = globalConfig.focusParameter || 'Airspeed_Comp_Vtd'
+                
+            const hasFocusInData = parameters.includes(focusParam) // Check if focus parameter exists in the data
+            const hasFocusSelected = selectedParameters.includes(focusParam)
+            const shouldUseFocusParameter = globalConfig.enableFocusParameter && hasFocusInData
+            
+            // Simple approach: reorganize parameters to put focus parameter at the end of each page
+            let finalPageParams = []
+            let totalPages = 0
+            
+            if (shouldUseFocusParameter) {
+                // Remove focus parameter from selected parameters first (if it's selected)
+                const otherParams = selectedParameters.filter(param => param !== focusParam)
+                
+                // Calculate pages based on other parameters (5 per page to leave room for focus parameter)
+                const paramsPerPage = chartsPerPage - 1 // 5 params per page
+                totalPages = Math.max(1, Math.ceil(otherParams.length / paramsPerPage)) // Ensure at least 1 page
+                
+                // Distribute parameters across pages, adding focus parameter as last on each page
+                for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+                    const startIndex = pageIndex * paramsPerPage
+                    const endIndex = Math.min(startIndex + paramsPerPage, otherParams.length)
+                    const pageOtherParams = otherParams.slice(startIndex, endIndex)
+                    
+                    // Always add focus parameter as the last parameter on every page
+                    finalPageParams.push([...pageOtherParams, focusParam])
+                }
+            } else {
+                // No focus parameter or not enabled, use normal pagination
+                totalPages = Math.ceil(selectedParameters.length / chartsPerPage)
+                for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+                    const startIndex = pageIndex * chartsPerPage
+                    const endIndex = Math.min(startIndex + chartsPerPage, selectedParameters.length)
+                    finalPageParams.push(selectedParameters.slice(startIndex, endIndex))
+                }
+            }
 
             // Generate chart pages
             const chartPages = []
 
-            for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
-                const startIndex = pageIndex * chartsPerPage
-                const endIndex = Math.min(
-                    startIndex + chartsPerPage,
-                    totalParams,
-                )
-                const pageParams = selectedParameters.slice(
-                    startIndex,
-                    endIndex,
-                )
+            for (let pageIndex = 0; pageIndex < finalPageParams.length; pageIndex++) {
+                const pageParams = finalPageParams[pageIndex]
+                
                 const chartsOnThisPage = pageParams.length
+                
+                // Create an extended selectedParameters array that includes focus parameter if it's in the data
+                const extendedSelectedParams = [...selectedParameters]
+                if (shouldUseFocusParameter && !hasFocusSelected) {
+                    extendedSelectedParams.push(focusParam)
+                }
+                
+                // Map page parameters back to their indices in the extended selected parameters
+                const pageParamIndices = pageParams.map(param => extendedSelectedParams.indexOf(param))
+
+                // Create extended chart options that include focus parameter if needed
+                let extendedChartOption = chartOption
+                if (shouldUseFocusParameter && !hasFocusSelected) {
+                    // We need to create chart configuration for focus parameter
+                    const focusMetadata = parameterMetadata[focusParam]
+                    if (focusMetadata) {
+                        const colorPalette = ['#4CAF50', '#3F51B5', '#FF9800', '#F44336', '#9C27B0']
+                        const focusIndex = extendedSelectedParams.length - 1
+                        const generateLineColor = (index) => colorPalette[index % colorPalette.length]
+                        const focusColor = generateLineColor(focusIndex)
+                        
+                        // Create series data for focus parameter
+                        const focusData = data.map((row) => {
+                            const value = parseFloat(row[focusParam])
+                            return isNaN(value) ? null : value
+                        })
+                        
+                        // Create additional series entry
+                        const focusSeries = {
+                            name: focusParam,
+                            type: 'line',
+                            showSymbol: false,
+                            lineStyle: { width: 1.5, color: focusColor },
+                            xAxisIndex: focusIndex,
+                            yAxisIndex: focusIndex,
+                            data: focusData,
+                            large: data.length > 1000,
+                            largeThreshold: 1000,
+                        }
+                        
+                        // Create additional xAxis entry
+                        const interval = Math.max(1, Math.floor(data.length / 10))
+                        const focusXAxis = {
+                            type: 'category',
+                            data: data.map((row, idx) => idx),
+                            gridIndex: focusIndex,
+                            axisLabel: { show: true, fontSize: 10, color: '#666', interval: interval },
+                            axisTick: { show: true, length: 3, interval: interval },
+                            axisLine: { show: true, lineStyle: { color: '#ddd' } },
+                            splitLine: { show: false },
+                        }
+                        
+                        // Create additional yAxis entry
+                        const focusYAxis = {
+                            type: 'value',
+                            name: focusParam,
+                            gridIndex: focusIndex,
+                            nameLocation: 'end',
+                            nameRotate: 0,
+                            nameGap: 10,
+                            nameTextStyle: { color: focusColor, fontSize: 10, fontWeight: 'bold', align: 'left' },
+                            min: focusMetadata.min,
+                            max: focusMetadata.max,
+                            splitNumber: 2,
+                            interval: (focusMetadata.max - focusMetadata.min),
+                            axisLabel: { fontSize: 9, color: focusColor, formatter: (value) => value.toFixed(1) },
+                            axisLine: { show: true, lineStyle: { color: focusColor } },
+                            axisTick: { show: true, length: 3, lineStyle: { color: focusColor }, interval: 0 },
+                            splitLine: { show: true, lineStyle: { type: 'solid', color: focusColor, opacity: 0.2 }, interval: 0 },
+                        }
+                        
+                        // Create additional grid entry
+                        const focusGrid = {
+                            left: '8%',
+                            right: '8%',
+                            top: `${10 + focusIndex * 25}%`,
+                            height: '20%',
+                            containLabel: false,
+                        }
+                        
+                        // Extend the chart option
+                        extendedChartOption = {
+                            ...chartOption,
+                            series: [...(chartOption.series || []), focusSeries],
+                            xAxis: [...(chartOption.xAxis || []), focusXAxis],
+                            yAxis: [...(chartOption.yAxis || []), focusYAxis],
+                            grid: [...(chartOption.grid || []), focusGrid],
+                        }
+                    }
+                }
 
                 // Create a print-specific chart configuration for this page
                 const printChartOption = {
-                    ...chartOption,
+                    ...extendedChartOption,
                     // Remove toolbox (zoom, refresh, download controls)
                     toolbox: null,
                     // Remove dataZoom controls
@@ -1073,56 +1222,37 @@ export default function FlightChart() {
                     // Adjust layout for print without toolbox and header
                     title: null, // Remove title/header completely for more space
                     // Show parameters for this page only with adjusted indices
-                    series: chartOption.series
-                        ? chartOption.series
-                              .slice(startIndex, endIndex)
-                              .map((series, index) => ({
-                                  ...series,
-                                  xAxisIndex: index, // Reset to 0-based indexing for this page
-                                  yAxisIndex: index, // Reset to 0-based indexing for this page
-                                  gridIndex: index, // Reset to 0-based gridIndex for this page
+                    series: extendedChartOption.series
+                        ? pageParamIndices.map((originalIndex, newIndex) => ({
+                                  ...extendedChartOption.series[originalIndex],
+                                  xAxisIndex: newIndex, // Reset to 0-based indexing for this page
+                                  yAxisIndex: newIndex, // Reset to 0-based indexing for this page
+                                  gridIndex: newIndex, // Reset to 0-based gridIndex for this page
                               }))
                         : [],
                     // Slice and reset the xAxis and yAxis to match the grid indices
-                    xAxis: chartOption.xAxis
-                        ? chartOption.xAxis
-                              .slice(startIndex, endIndex)
-                              .map((axis, index) => ({
-                                  ...axis,
-                                  gridIndex: index, // Reset gridIndex to 0-based for this page
+                    xAxis: extendedChartOption.xAxis
+                        ? pageParamIndices.map((originalIndex, newIndex) => ({
+                                  ...extendedChartOption.xAxis[originalIndex],
+                                  gridIndex: newIndex, // Reset gridIndex to 0-based for this page
                                   axisLabel: {
-                                      ...axis.axisLabel,
-                                      show: index === chartsOnThisPage - 1, // Show x-axis labels on the last chart of each page
+                                      ...extendedChartOption.xAxis[originalIndex].axisLabel,
+                                      show: newIndex === chartsOnThisPage - 1, // Show x-axis labels on the last chart of each page
                                   },
                                   axisTick: {
-                                      ...axis.axisTick,
-                                      show: index === chartsOnThisPage - 1, // Show x-axis ticks on the last chart of each page
+                                      ...extendedChartOption.xAxis[originalIndex].axisTick,
+                                      show: newIndex === chartsOnThisPage - 1, // Show x-axis ticks on the last chart of each page
                                   },
                                   axisLine: {
-                                      ...axis.axisLine,
-                                      show: index === chartsOnThisPage - 1, // Show x-axis line on the last chart of each page
+                                      ...extendedChartOption.xAxis[originalIndex].axisLine,
+                                      show: newIndex === chartsOnThisPage - 1, // Show x-axis line on the last chart of each page
                                   },
                               }))
                         : [],
-                    yAxis: chartOption.yAxis
-                        ? chartOption.yAxis
-                              .slice(startIndex, endIndex)
-                              .map((axis, index) => ({
-                                  type: axis.type,
-                                  name: axis.name,
-                                  gridIndex: index, // Reset gridIndex to 0-based for this page
-                                  nameLocation: axis.nameLocation,
-                                  nameRotate: axis.nameRotate,
-                                  nameGap: axis.nameGap,
-                                  nameTextStyle: axis.nameTextStyle,
-                                  min: axis.min,
-                                  max: axis.max,
-                                  splitNumber: axis.splitNumber, // Preserve min/max only display for numeric
-                                  interval: axis.interval,
-                                  axisLabel: axis.axisLabel,
-                                  axisLine: axis.axisLine,
-                                  axisTick: axis.axisTick,
-                                  splitLine: axis.splitLine,
+                    yAxis: extendedChartOption.yAxis
+                        ? pageParamIndices.map((originalIndex, newIndex) => ({
+                                  ...extendedChartOption.yAxis[originalIndex],
+                                  gridIndex: newIndex, // Reset gridIndex to 0-based for this page
                               }))
                         : [],
                     // Recalculate grid positions for print - 6 graphs max per page or less for last page
@@ -1174,7 +1304,6 @@ export default function FlightChart() {
                     params: pageParams,
                     pageNumber: pageIndex + 1,
                     totalPages: totalPages,
-                    startIndex: startIndex,
                 })
             }
 
@@ -1496,11 +1625,14 @@ export default function FlightChart() {
     }, [])
 
     const handleParameterToggle = useCallback((param) => {
-        setSelectedParameters((prev) =>
-            prev.includes(param)
+        setSelectedParameters((prev) => {
+            const newParams = prev.includes(param)
                 ? prev.filter((p) => p !== param)
-                : [...prev, param],
-        )
+                : [...prev, param]
+            
+            // Ensure uniqueness
+            return [...new Set(newParams)]
+        })
     }, [])
 
     const handleGroupToggle = useCallback((groupParams) => {
@@ -1508,11 +1640,15 @@ export default function FlightChart() {
             const allSelected = groupParams.every((param) =>
                 prev.includes(param),
             )
+            let newParams
             if (allSelected) {
-                return prev.filter((p) => !groupParams.includes(p))
+                newParams = prev.filter((p) => !groupParams.includes(p))
             } else {
-                return [...new Set([...prev, ...groupParams])]
+                newParams = [...prev, ...groupParams]
             }
+            
+            // Ensure uniqueness
+            return [...new Set(newParams)]
         })
     }, [])
 
@@ -1573,13 +1709,16 @@ export default function FlightChart() {
 
             {/* Chart Configuration Modal */}
             <ChartConfig
-                selectedParameters={selectedParameters}
+                selectedParameters={[...new Set(selectedParameters)]}
                 parameterMetadata={parameterMetadata}
                 chartConfig={chartConfig}
                 updateParameterConfig={updateParameterConfig}
                 resetParameterConfig={resetParameterConfig}
                 isVisible={showChartConfig}
                 onClose={() => setShowChartConfig(false)}
+                parameters={[...new Set(parameters)]}
+                globalConfig={globalConfig}
+                updateGlobalConfig={updateGlobalConfig}
             />
 
             {/* Loading Indicator */}
@@ -2228,7 +2367,7 @@ export default function FlightChart() {
 
                                                         return (
                                                             <div
-                                                                key={`${groupName}-${param}-${paramIndex}`}
+                                                                key={param}
                                                                 className={`flex items-center space-x-3 p-3 rounded-lg cursor-pointer transition-all ${
                                                                     isSelected
                                                                         ? 'bg-blue-50 border-2 border-blue-200 shadow-sm'
