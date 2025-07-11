@@ -72,7 +72,7 @@
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-org/aeroplot.git
+   git clone https://github.com/sifunadonnex/aeroplot.git
    cd aeroplot
    ```
 
