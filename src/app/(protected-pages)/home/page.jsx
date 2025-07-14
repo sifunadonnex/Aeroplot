@@ -317,6 +317,25 @@ export default function FlightChart() {
         setProcessingMessage('Starting file processing...')
 
         try {
+            // Validate file before processing
+            if (!file) {
+                throw new Error('No file provided')
+            }
+            
+            if (file.size === 0) {
+                throw new Error('File is empty')
+            }
+            
+            // Warn about very large files and set expectations
+            const fileSizeMB = file.size / (1024 * 1024)
+            if (fileSizeMB > 500) {
+                console.warn(`Very large file detected: ${fileSizeMB.toFixed(1)}MB`)
+                setProcessingMessage(`Processing very large file (${fileSizeMB.toFixed(1)}MB) - this will use chunked processing and may take several minutes...`)
+            } else if (fileSizeMB > 100) {
+                console.warn(`Large file detected: ${fileSizeMB.toFixed(1)}MB`)
+                setProcessingMessage(`Processing large file (${fileSizeMB.toFixed(1)}MB) - this may take a while...`)
+            }
+
             // Create parser with progress callback
             const parser = new LargeCSVParser((progress, message) => {
                 setProcessingProgress(progress)
@@ -324,10 +343,20 @@ export default function FlightChart() {
             })
 
             // Parse the CSV file with progress tracking
+            setProcessingMessage('Reading and parsing CSV file...')
             const { data, units, headers, totalRows, fileSize } =
                 await parser.parseCSVStream(file)
 
             setProcessingMessage('Optimizing data for visualization...')
+
+            // Validate parsed data
+            if (!data || data.length === 0) {
+                throw new Error('No valid data found in CSV file')
+            }
+            
+            if (!headers || headers.length === 0) {
+                throw new Error('No headers found in CSV file')
+            }
 
             // Use intelligent sampling for large datasets
             const sampledData = LargeCSVParser.sampleLargeDataset(data, 15000) // Increased sample size
@@ -371,12 +400,35 @@ export default function FlightChart() {
             setTimeout(() => setShowProgress(false), 1000) // Hide progress after 1 second
         } catch (error) {
             console.error('Error processing file:', error)
-            setProcessingMessage('Error processing file: ' + error.message)
+            
+            // Provide more detailed error messages based on error type
+            let errorMessage = 'Error processing file: '
+            if (error.message.includes('too large')) {
+                errorMessage += error.message // Use the specific file size error message
+            } else if (error.message.includes('at least headers and one data row')) {
+                errorMessage += 'The CSV file appears to be malformed or extremely large. Please check that the file contains valid CSV data with headers and data rows.'
+            } else if (error.message.includes('Failed to read file') || error.message.includes('FileReader')) {
+                errorMessage += 'Unable to read the file. This may be due to file corruption, insufficient memory, or the file being too large. Try closing other browser tabs or reducing the file size.'
+            } else if (error.message.includes('No valid data')) {
+                errorMessage += 'No valid data rows found in the file. Please check the CSV format.'
+            } else if (error.message.includes('timed out')) {
+                errorMessage += 'File processing timed out. The file may be too large for your system to process. Please try with a smaller file or contact support.'
+            } else if (error.message.includes('memory') || error.message.includes('corrupted')) {
+                errorMessage += error.message + ' Try closing other browser tabs or restarting your browser.'
+            } else {
+                errorMessage += error.message
+            }
+            
+            setProcessingMessage(errorMessage)
+            
+            // Show error longer for user to read, with different timeouts based on error type
+            const errorTimeout = error.message.includes('too large') ? 8000 : 5000
             setTimeout(() => {
                 setShowProgress(false)
                 setIsLoading(false)
-            }, 3000)
-            throw error
+            }, errorTimeout)
+            
+            // Don't re-throw the error to prevent additional error handling
         } finally {
             setIsLoading(false)
         }
