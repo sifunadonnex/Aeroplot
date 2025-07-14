@@ -155,7 +155,7 @@ export default function FlightChart() {
     const [data, setData] = useState([])
     const [parameters, setParameters] = useState([])
     const [selectedParameters, setSelectedParameters] = useState([])
-    const [units, setUnits] = useState([])
+    const [units, setUnits] = useState({})
     const [isLoading, setIsLoading] = useState(false)
     
     // Performance state: Cache heavy computations
@@ -362,7 +362,24 @@ export default function FlightChart() {
             const sampledData = LargeCSVParser.sampleLargeDataset(data, 15000) // Increased sample size
 
             setData(sampledData)
-            setUnits(units)
+            
+            // Create proper parameter-to-unit mapping
+            const parameterUnitsMap = {}
+            headers.forEach((header, index) => {
+                if (header !== 'time' && header !== 'Sample' && header !== 'Phase') {
+                    parameterUnitsMap[header] = units[index] || ''
+                }
+            })
+            
+            // Debug: Log the mapping to console for verification
+            console.log('Parameters to Units Mapping:', {
+                totalHeaders: headers.length,
+                totalUnits: units.length,
+                mappedParameters: Object.keys(parameterUnitsMap).length,
+                sampleMapping: Object.entries(parameterUnitsMap).slice(0, 5) // Show first 5 mappings
+            })
+            
+            setUnits(parameterUnitsMap) // Store as object mapping instead of array
             const paramList = [...new Set(headers.filter(
                 (key) => key !== 'time' && key !== 'Sample' && key !== 'Phase',
             ))]
@@ -447,7 +464,7 @@ export default function FlightChart() {
         setData([])
         setParameters([])
         setSelectedParameters([])
-        setUnits([])
+        setUnits({})
         setParameterMetadata({})
         setFlightData(null)
         setHasFile(false)
@@ -1674,21 +1691,6 @@ export default function FlightChart() {
                         <div className="max-w-2xl w-full">
                             {/* Hero Section */}
                             <div className="text-center mb-12">
-                                <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl shadow-lg mb-6">
-                                    <svg
-                                        className="w-10 h-10 text-white"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                                        />
-                                    </svg>
-                                </div>
                                 <h1 className="text-5xl font-bold bg-gradient-to-r from-gray-900 to-blue-900 bg-clip-text text-transparent mb-4">
                                     Aeroplot
                                 </h1>
@@ -2023,7 +2025,7 @@ export default function FlightChart() {
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
                                         strokeWidth={2}
-                                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
                                     />
                                 </svg>
                             </div>
@@ -2163,7 +2165,7 @@ export default function FlightChart() {
                                             strokeLinejoin="round"
                                             strokeWidth={1}
                                             d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6-4h6m2 5.291A7.962 7.962 0 0112 15c-2.34 0-4.44-1.01-5.879-2.621M3 18.5A2.5 2.5 0 015.5 21h13a2.5 2.5 0 002.5-2.5 0 00-2.5-2.5h-13A2.5 2.5 0 003 18.5z"
-                                        />
+                                    />
                                     </svg>
                                 </div>
                                 <p className="text-lg font-medium mb-2">
@@ -2282,12 +2284,7 @@ export default function FlightChart() {
                                                             getParameterColor(
                                                                 param,
                                                             )
-                                                        const unit =
-                                                            units[
-                                                                parameters.indexOf(
-                                                                    param,
-                                                                ) + 1
-                                                            ] || ''
+                                                        const unit = units[param] || ''
                                                         const isNumeric =
                                                             isNumericParameter(
                                                                 param,
