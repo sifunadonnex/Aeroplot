@@ -529,10 +529,12 @@ export default function FlightChart() {
             }
 
             const isNumeric = numericValues.length / Math.max(nonEmptyCount, 1) > 0.8
+            const uniqueValues = isNumeric ? [] : [...new Set(values)].sort()
             
             metadata[param] = {
                 isNumeric,
-                states: isNumeric ? [] : [...new Set(values)].sort(),
+                states: uniqueValues,
+                uniqueValues: uniqueValues,
                 min: numericValues.length > 0 ? Math.min(...numericValues) : 0,
                 max: numericValues.length > 0 ? Math.max(...numericValues) : 1,
                 valueCount: nonEmptyCount,

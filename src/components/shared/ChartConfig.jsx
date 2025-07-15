@@ -378,6 +378,444 @@ export default function ChartConfig({
                   </>
                 )}
 
+                {!parameterMetadata[activeTab]?.isNumeric && (
+                  <>
+                    {/* Categorical State Display */}
+                    <div className="border border-gray-200 rounded-lg p-5 bg-white shadow-sm">
+                      <div className="flex items-center justify-between mb-4">
+                        <h5 className="font-medium text-gray-900 flex items-center">
+                          <FiLayers className="h-5 w-5 mr-2 text-indigo-600" /> State Display
+                        </h5>
+                        <span className="text-xs text-gray-500 bg-orange-100 px-2 py-1 rounded">
+                          Categorical
+                        </span>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Display Mode
+                          </label>
+                          <select
+                            value={getParameterConfig(activeTab).displayMode || 'states'}
+                            onChange={(e) => updateParameterConfig(activeTab, {
+                              displayMode: e.target.value
+                            })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                          >
+                            <option value="states">Show State Names</option>
+                            <option value="numeric">Show as Numeric Values</option>
+                            <option value="both">Show Both States and Values</option>
+                          </select>
+                          <p className="text-xs text-gray-600 mt-2">
+                            Choose how categorical values are displayed on the chart
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={getParameterConfig(activeTab).showStateTransitions || false}
+                              onChange={() => updateParameterConfig(activeTab, {
+                                showStateTransitions: !getParameterConfig(activeTab).showStateTransitions
+                              })}
+                              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                            />
+                            <span className="ml-2 text-sm font-medium text-gray-700">Highlight State Transitions</span>
+                          </label>
+                          <p className="text-xs text-gray-600 mt-2 ml-6">
+                            Mark points where the categorical value changes
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={getParameterConfig(activeTab).stackDuplicates || false}
+                              onChange={() => updateParameterConfig(activeTab, {
+                                stackDuplicates: !getParameterConfig(activeTab).stackDuplicates
+                              })}
+                              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                            />
+                            <span className="ml-2 text-sm font-medium text-gray-700">Stack Duplicate Values</span>
+                          </label>
+                          <p className="text-xs text-gray-600 mt-2 ml-6">
+                            Vertically offset points with the same categorical value for better visibility
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Categorical Data Info */}
+                      <div className="mt-4 p-3 bg-orange-50 rounded-lg">
+                        <div className="text-sm text-gray-600">
+                          <div>Unique States:</div>
+                          <div className="font-mono text-xs mt-1 max-h-20 overflow-y-auto">
+                            {parameterMetadata[activeTab]?.uniqueValues?.length || 0} states
+                            {parameterMetadata[activeTab]?.uniqueValues && 
+                              ` (${parameterMetadata[activeTab].uniqueValues.slice(0, 5).join(', ')}${
+                                parameterMetadata[activeTab].uniqueValues.length > 5 ? '...' : ''
+                              })`
+                            }
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* State Filtering */}
+                    <div className="border border-gray-200 rounded-lg p-5 bg-white shadow-sm">
+                      <div className="flex items-center justify-between mb-4">
+                        <h5 className="font-medium text-gray-900 flex items-center">
+                          <FiFilter className="h-5 w-5 mr-2 text-indigo-600" /> State Filtering
+                        </h5>
+                        <label className="flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={getParameterConfig(activeTab).enableStateFiltering || false}
+                            onChange={() => updateParameterConfig(activeTab, {
+                              enableStateFiltering: !getParameterConfig(activeTab).enableStateFiltering
+                            })}
+                            className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                          />
+                          <span className="ml-2 text-sm font-medium text-gray-700">Enable State Filtering</span>
+                        </label>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Filter Mode
+                          </label>
+                          <select
+                            value={getParameterConfig(activeTab).filterMode || 'include'}
+                            onChange={(e) => updateParameterConfig(activeTab, {
+                              filterMode: e.target.value
+                            })}
+                            disabled={!getParameterConfig(activeTab).enableStateFiltering}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 text-sm"
+                          >
+                            <option value="include">Include Selected States</option>
+                            <option value="exclude">Exclude Selected States</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Minimum State Duration (seconds)
+                          </label>
+                          <input
+                            type="number"
+                            value={getParameterConfig(activeTab).minStateDuration || 0}
+                            onChange={(e) => updateParameterConfig(activeTab, {
+                              minStateDuration: parseFloat(e.target.value) || 0
+                            })}
+                            disabled={!getParameterConfig(activeTab).enableStateFiltering}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 text-sm"
+                            min="0"
+                            step="0.1"
+                          />
+                          <p className="text-xs text-gray-600 mt-2">
+                            Filter out state changes that last less than this duration
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={getParameterConfig(activeTab).ignoreInvalidStates || false}
+                              onChange={() => updateParameterConfig(activeTab, {
+                                ignoreInvalidStates: !getParameterConfig(activeTab).ignoreInvalidStates
+                              })}
+                              disabled={!getParameterConfig(activeTab).enableStateFiltering}
+                              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 disabled:opacity-50"
+                            />
+                            <span className="ml-2 text-sm font-medium text-gray-700">Ignore Invalid/Unknown States</span>
+                          </label>
+                          <p className="text-xs text-gray-600 mt-2 ml-6">
+                            Filter out null, undefined, or empty string values
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Missing Data Handling */}
+                    <div className="border border-gray-200 rounded-lg p-5 bg-white shadow-sm">
+                      <div className="flex items-center justify-between mb-4">
+                        <h5 className="font-medium text-gray-900 flex items-center">
+                          <FiLayers className="h-5 w-5 mr-2 text-indigo-600" /> Missing Data Handling
+                        </h5>
+                        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                          Advanced
+                        </span>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Missing Data Strategy
+                          </label>
+                          <select
+                            value={getParameterConfig(activeTab).missingDataStrategy || 'forward'}
+                            onChange={(e) => updateParameterConfig(activeTab, {
+                              missingDataStrategy: e.target.value
+                            })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                          >
+                            <option value="forward">Forward Fill (Hold Last State)</option>
+                            <option value="backward">Backward Fill</option>
+                            <option value="gap">Show as Data Gaps</option>
+                            <option value="unknown">Mark as 'Unknown' State</option>
+                          </select>
+                          <p className="text-xs text-gray-600 mt-2">
+                            How to handle missing or null categorical values
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={getParameterConfig(activeTab).showMissingDataMarkers || false}
+                              onChange={() => updateParameterConfig(activeTab, {
+                                showMissingDataMarkers: !getParameterConfig(activeTab).showMissingDataMarkers
+                              })}
+                              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                            />
+                            <span className="ml-2 text-sm font-medium text-gray-700">Show Missing Data Markers</span>
+                          </label>
+                          <p className="text-xs text-gray-600 mt-2 ml-6">
+                            Add visual indicators where data was originally missing
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Custom Unknown State Label
+                          </label>
+                          <input
+                            type="text"
+                            value={getParameterConfig(activeTab).unknownStateLabel || 'Unknown'}
+                            onChange={(e) => updateParameterConfig(activeTab, {
+                              unknownStateLabel: e.target.value || 'Unknown'
+                            })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                            placeholder="Unknown"
+                          />
+                          <p className="text-xs text-gray-600 mt-2">
+                            Label to use for missing or invalid categorical values
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Categorical Parameter Configuration */}
+                {!parameterMetadata[activeTab]?.isNumeric && parameterMetadata[activeTab]?.states && (
+                  <>
+                    {/* State Display Configuration */}
+                    <div className="border border-gray-200 rounded-lg p-5 bg-white shadow-sm">
+                      <div className="flex items-center justify-between mb-4">
+                        <h5 className="font-medium text-gray-900 flex items-center">
+                          <FiLayers className="h-5 w-5 mr-2 text-indigo-600" /> State Display
+                        </h5>
+                        <span className="text-xs text-gray-500 bg-purple-100 px-2 py-1 rounded">
+                          Categorical
+                        </span>
+                      </div>
+
+                      {/* Available States */}
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Available States ({parameterMetadata[activeTab]?.states?.length || 0})
+                        </label>
+                        <div className="max-h-32 overflow-y-auto bg-gray-50 rounded-lg p-3">
+                          <div className="flex flex-wrap gap-2">
+                            {parameterMetadata[activeTab]?.states?.map((state, index) => (
+                              <span
+                                key={index}
+                                className="inline-flex items-center px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full"
+                              >
+                                {state}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Chart Display Options */}
+                      <div className="space-y-4">
+                        <div>
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={getParameterConfig(activeTab).showStepLines || true}
+                              onChange={() => updateParameterConfig(activeTab, {
+                                showStepLines: !getParameterConfig(activeTab).showStepLines
+                              })}
+                              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                            />
+                            <span className="ml-2 text-sm font-medium text-gray-700">Show Step Lines</span>
+                          </label>
+                          <p className="text-xs text-gray-600 mt-2 ml-6">
+                            Display categorical data as step lines instead of discrete points
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Line Width
+                          </label>
+                          <input
+                            type="range"
+                            min="1"
+                            max="5"
+                            value={getParameterConfig(activeTab).lineWidth || 2}
+                            onChange={(e) => updateParameterConfig(activeTab, {
+                              lineWidth: parseInt(e.target.value)
+                            })}
+                            className="w-full h-2 bg-gray-200 rounded-lg cursor-pointer"
+                          />
+                          <div className="flex justify-between text-xs text-gray-500 mt-2">
+                            <span>Thin (1px)</span>
+                            <span>{getParameterConfig(activeTab).lineWidth || 2}px</span>
+                            <span>Thick (5px)</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* State Filtering */}
+                    <div className="border border-gray-200 rounded-lg p-5 bg-white shadow-sm">
+                      <div className="flex items-center justify-between mb-4">
+                        <h5 className="font-medium text-gray-900 flex items-center">
+                          <FiFilter className="h-5 w-5 mr-2 text-indigo-600" /> State Filtering
+                        </h5>
+                        <label className="flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={getParameterConfig(activeTab).enableStateFiltering || false}
+                            onChange={() => updateParameterConfig(activeTab, {
+                              enableStateFiltering: !getParameterConfig(activeTab).enableStateFiltering
+                            })}
+                            className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                          />
+                          <span className="ml-2 text-sm font-medium text-gray-700">Enable State Filtering</span>
+                        </label>
+                      </div>
+
+                      {getParameterConfig(activeTab).enableStateFiltering && (
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Excluded States
+                            </label>
+                            <div className="space-y-2 max-h-40 overflow-y-auto">
+                              {parameterMetadata[activeTab]?.states?.map((state, index) => (
+                                <label key={index} className="flex items-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={getParameterConfig(activeTab).excludedStates?.includes(state) || false}
+                                    onChange={(e) => {
+                                      const currentExcluded = getParameterConfig(activeTab).excludedStates || []
+                                      const newExcluded = e.target.checked
+                                        ? [...currentExcluded, state]
+                                        : currentExcluded.filter(s => s !== state)
+                                      updateParameterConfig(activeTab, {
+                                        excludedStates: newExcluded
+                                      })
+                                    }}
+                                    className="rounded border-gray-300 text-red-600 focus:ring-red-500 h-4 w-4"
+                                  />
+                                  <span className="ml-2 text-sm text-gray-700">{state}</span>
+                                </label>
+                              ))}
+                            </div>
+                            <p className="text-xs text-gray-600 mt-2">
+                              Selected states will be excluded from the chart display
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Sparse Data Handling for Categorical */}
+                    <div className="border border-gray-200 rounded-lg p-5 bg-white shadow-sm">
+                      <div className="flex items-center justify-between mb-4">
+                        <h5 className="font-medium text-gray-900 flex items-center">
+                          <FiLayers className="h-5 w-5 mr-2 text-indigo-600" /> Missing Data Handling
+                        </h5>
+                        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                          Advanced
+                        </span>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={getParameterConfig(activeTab).forceCategoricalFill || false}
+                              onChange={() => updateParameterConfig(activeTab, {
+                                forceCategoricalFill: !getParameterConfig(activeTab).forceCategoricalFill
+                              })}
+                              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                            />
+                            <span className="ml-2 text-sm font-medium text-gray-700">Force Missing Data Fill</span>
+                          </label>
+                          <p className="text-xs text-gray-600 mt-2 ml-6">
+                            Always fill missing categorical values, even for dense data
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Fill Method
+                          </label>
+                          <select
+                            value={getParameterConfig(activeTab).categoricalFillMethod || 'forward'}
+                            onChange={(e) => updateParameterConfig(activeTab, {
+                              categoricalFillMethod: e.target.value
+                            })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                          >
+                            <option value="forward">Forward Fill (Recommended)</option>
+                            <option value="backward">Backward Fill</option>
+                            <option value="mostCommon">Use Most Common State</option>
+                            <option value="none">Leave Empty</option>
+                          </select>
+                          <p className="text-xs text-gray-600 mt-2">
+                            Forward fill maintains the last recorded state, ideal for flight phases
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Default State for Empty Values
+                          </label>
+                          <select
+                            value={getParameterConfig(activeTab).defaultState || ''}
+                            onChange={(e) => updateParameterConfig(activeTab, {
+                              defaultState: e.target.value
+                            })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                          >
+                            <option value="">-- No Default --</option>
+                            {parameterMetadata[activeTab]?.states?.map((state, index) => (
+                              <option key={index} value={state}>{state}</option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-gray-600 mt-2">
+                            Use this state when no other fill method can be applied
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 {/* Reset Button */}
                 <div className="pt-4 border-t border-gray-200">
                   <button
