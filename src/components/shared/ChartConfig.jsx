@@ -81,11 +81,11 @@ export default function ChartConfig({
 
         <div className="flex flex-1 overflow-hidden">
           {/* Parameter Tabs */}
-          <div className="w-64 border-r border-gray-200 bg-gray-50 p-4">
-            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
+          <div className="w-64 border-r border-gray-200 bg-gray-50 p-4 flex flex-col">
+            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center flex-shrink-0">
               <FiLayers className="h-5 w-5 mr-2 text-indigo-600" /> Parameters
             </h4>
-            <div className="space-y-1">
+            <div className="flex-1 overflow-y-auto space-y-1 pr-2">
               {selectedParameters.map(param => {
                 const metadata = parameterMetadata[param] || {}
                 const config = getParameterConfig(param)
