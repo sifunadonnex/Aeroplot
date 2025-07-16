@@ -310,6 +310,98 @@ export default function FlightChart() {
         }
     }, [searchTerm])
 
+    // Sparse-aware sampling function for large datasets
+    const sparseAwareSampling = (data, headers, targetSize) => {
+        if (data.length <= targetSize) return data
+
+        // First, analyze sparsity of each parameter
+        const parameterSparsity = {}
+        const relevantHeaders = headers.filter(h => h !== 'time' && h !== 'Sample' && h !== 'Phase')
+        
+        relevantHeaders.forEach(param => {
+            let nonEmptyCount = 0
+            const validIndices = []
+            
+            for (let i = 0; i < data.length; i++) {
+                const val = data[i][param]
+                if (val !== '' && val !== null && val !== undefined) {
+                    nonEmptyCount++
+                    validIndices.push(i)
+                }
+            }
+            
+            parameterSparsity[param] = {
+                sparsityRatio: (data.length - nonEmptyCount) / data.length,
+                validIndices: validIndices,
+                validCount: nonEmptyCount
+            }
+        })
+
+        // Identify highly sparse parameters (>80% missing)
+        const sparseParams = Object.entries(parameterSparsity)
+            .filter(([param, info]) => info.sparsityRatio > 0.8)
+            .map(([param, info]) => param)
+
+        console.log('Sparse parameters detected:', {
+            totalParams: relevantHeaders.length,
+            sparseParams: sparseParams.length,
+            sparseParamNames: sparseParams.slice(0, 5) // Show first 5
+        })
+
+        // Collect all indices that contain sparse data
+        const sparseDataIndices = new Set()
+        sparseParams.forEach(param => {
+            parameterSparsity[param].validIndices.forEach(idx => {
+                sparseDataIndices.add(idx)
+            })
+        })
+
+        // Calculate how many sparse data points we want to preserve
+        const maxSparsePoints = Math.min(sparseDataIndices.size, Math.floor(targetSize * 0.3)) // Reserve 30% for sparse data
+        const remainingBudget = targetSize - maxSparsePoints
+
+        // Convert sparse indices to array and sample them if too many
+        let selectedSparseIndices = Array.from(sparseDataIndices)
+        if (selectedSparseIndices.length > maxSparsePoints) {
+            // Randomly sample sparse indices to fit budget
+            selectedSparseIndices = selectedSparseIndices
+                .sort(() => Math.random() - 0.5)
+                .slice(0, maxSparsePoints)
+        }
+
+        // For remaining budget, use uniform sampling from non-sparse indices
+        const nonSparseIndices = []
+        for (let i = 0; i < data.length; i++) {
+            if (!sparseDataIndices.has(i)) {
+                nonSparseIndices.push(i)
+            }
+        }
+
+        // Sample remaining indices uniformly
+        const step = Math.max(1, Math.floor(nonSparseIndices.length / remainingBudget))
+        const selectedNonSparseIndices = []
+        for (let i = 0; i < nonSparseIndices.length; i += step) {
+            selectedNonSparseIndices.push(nonSparseIndices[i])
+        }
+
+        // Combine all selected indices and sort them
+        const allSelectedIndices = [...selectedSparseIndices, ...selectedNonSparseIndices]
+            .sort((a, b) => a - b)
+
+        // Create sampled dataset
+        const sampledData = allSelectedIndices.map(idx => data[idx])
+
+        console.log('Sparse-aware sampling results:', {
+            sparsePointsPreserved: selectedSparseIndices.length,
+            uniformPointsSelected: selectedNonSparseIndices.length,
+            totalSampled: sampledData.length,
+            sparsePreservationRatio: sparseDataIndices.size > 0 ? 
+                (selectedSparseIndices.length / sparseDataIndices.size * 100).toFixed(1) + '%' : 'N/A'
+        })
+
+        return sampledData
+    }
+
     const handleFileUpload = async (file) => {
         setIsLoading(true)
         setShowProgress(true)
@@ -358,8 +450,20 @@ export default function FlightChart() {
                 throw new Error('No headers found in CSV file')
             }
 
-            // Use intelligent sampling for large datasets
-            const sampledData = LargeCSVParser.sampleLargeDataset(data, 15000) // Increased sample size
+            // Use intelligent sampling for large datasets with sparse data awareness
+            let sampledData
+            if (data.length > 15000) {
+                // For large datasets, use sparse-aware sampling
+                sampledData = sparseAwareSampling(data, headers, 15000)
+                console.log('Applied sparse-aware sampling:', {
+                    originalSize: data.length,
+                    sampledSize: sampledData.length,
+                    compressionRatio: (sampledData.length / data.length * 100).toFixed(1) + '%'
+                })
+            } else {
+                // For smaller datasets, use all data
+                sampledData = data
+            }
 
             setData(sampledData)
             
@@ -512,6 +616,7 @@ export default function FlightChart() {
         paramList.forEach((param) => {
             const values = []
             const numericValues = []
+            const nonNumericValues = []
             let nonEmptyCount = 0
             
             // Single pass through data for efficiency
@@ -524,12 +629,53 @@ export default function FlightChart() {
                     const numVal = parseFloat(val)
                     if (!isNaN(numVal)) {
                         numericValues.push(numVal)
+                    } else {
+                        nonNumericValues.push(val)
                     }
                 }
             }
 
-            const isNumeric = numericValues.length / Math.max(nonEmptyCount, 1) > 0.8
+            // Improved numeric detection logic for sparse data
+            let isNumeric = false
+            
+            if (nonEmptyCount === 0) {
+                // No data at all - treat as numeric by default
+                isNumeric = true
+            } else if (numericValues.length === 0) {
+                // No numeric values found - definitely categorical
+                isNumeric = false
+            } else if (nonNumericValues.length === 0) {
+                // All non-empty values are numeric - definitely numeric
+                isNumeric = true
+            } else {
+                // Mixed data - use improved heuristics
+                const numericRatio = numericValues.length / nonEmptyCount
+                const uniqueNonNumeric = [...new Set(nonNumericValues)]
+                
+                // If most values are numeric (>80%) and there are few unique non-numeric values,
+                // treat as numeric (the non-numeric values might be error codes or special values)
+                if (numericRatio > 0.8 && uniqueNonNumeric.length <= 5) {
+                    isNumeric = true
+                } else if (numericRatio > 0.95) {
+                    // If 95%+ are numeric, definitely treat as numeric
+                    isNumeric = true
+                } else if (numericRatio < 0.5) {
+                    // If less than 50% are numeric, treat as categorical
+                    isNumeric = false
+                } else {
+                    // Edge case: check if non-numeric values look like error codes/special values
+                    const commonErrorPatterns = /^(error|err|fault|fail|invalid|n\/a|na|null|undefined|#)$/i
+                    const hasErrorPatterns = uniqueNonNumeric.some(val => 
+                        commonErrorPatterns.test(String(val).trim())
+                    )
+                    
+                    // If non-numeric values look like errors and we have significant numeric data, treat as numeric
+                    isNumeric = hasErrorPatterns && numericRatio > 0.6
+                }
+            }
+            
             const uniqueValues = isNumeric ? [] : [...new Set(values)].sort()
+            const sparsityRatio = (data.length - nonEmptyCount) / data.length
             
             metadata[param] = {
                 isNumeric,
@@ -539,9 +685,55 @@ export default function FlightChart() {
                 max: numericValues.length > 0 ? Math.max(...numericValues) : 1,
                 valueCount: nonEmptyCount,
                 totalCount: data.length,
-                sparsityRatio: (data.length - nonEmptyCount) / data.length
+                sparsityRatio: sparsityRatio,
+                numericValueCount: numericValues.length,
+                nonNumericValueCount: nonNumericValues.length,
+                numericRatio: nonEmptyCount > 0 ? numericValues.length / nonEmptyCount : 0,
+                // Add suggested interpolation method based on sparsity
+                suggestedInterpolation: sparsityRatio > 0.8 ? 'forward' : 
+                                      sparsityRatio > 0.5 ? 'linear' : 'none'
             }
         })
+        
+        // Debug logging to help track parameter classification
+        console.log('Parameter Analysis Summary:', {
+            totalParameters: paramList.length,
+            numericParameters: Object.values(metadata).filter(m => m.isNumeric).length,
+            categoricalParameters: Object.values(metadata).filter(m => !m.isNumeric).length,
+            sparseParameters: Object.values(metadata).filter(m => m.sparsityRatio > 0.2).length,
+            verySparseParameters: Object.values(metadata).filter(m => m.sparsityRatio > 0.8).length,
+            extremelySparseParameters: Object.values(metadata).filter(m => m.sparsityRatio > 0.95).length,
+            groupBreakdown: {
+                'Numeric (Dense)': Object.values(metadata).filter(m => m.isNumeric && m.sparsityRatio <= 0.2).length,
+                'Numeric (Sparse)': Object.values(metadata).filter(m => m.isNumeric && m.sparsityRatio > 0.2).length,
+                'Categorical (Dense)': Object.values(metadata).filter(m => !m.isNumeric && m.sparsityRatio <= 0.2).length,
+                'Categorical (Sparse)': Object.values(metadata).filter(m => !m.isNumeric && m.sparsityRatio > 0.2).length
+            },
+            detailedBreakdown: Object.entries(metadata).map(([param, meta]) => ({
+                parameter: param,
+                isNumeric: meta.isNumeric,
+                sparsityRatio: (meta.sparsityRatio * 100).toFixed(1) + '%',
+                numericRatio: (meta.numericRatio * 100).toFixed(1) + '%',
+                totalValues: meta.totalCount,
+                nonEmptyValues: meta.valueCount,
+                numericValues: meta.numericValueCount,
+                nonNumericValues: meta.nonNumericValueCount,
+                suggestedInterpolation: meta.suggestedInterpolation,
+                groupAssignment: meta.isNumeric ? 
+                    (meta.sparsityRatio > 0.2 ? 'Numeric (Sparse)' : 'Numeric (Dense)') : 
+                    (meta.sparsityRatio > 0.2 ? 'Categorical (Sparse)' : 'Categorical (Dense)')
+            })).slice(0, 10) // Show first 10 for debugging
+        })
+        
+        // Check for parameters that might have lost data during sampling
+        const potentiallyLostDataParams = Object.entries(metadata)
+            .filter(([param, meta]) => meta.isNumeric && meta.sparsityRatio > 0.9 && meta.valueCount < 10)
+            .map(([param, meta]) => param)
+            
+        if (potentiallyLostDataParams.length > 0) {
+            console.warn('Parameters with potentially lost sparse data:', potentiallyLostDataParams)
+            console.warn('These parameters had very few data points and may not display properly due to data sampling.')
+        }
         
         setParameterMetadata(metadata)
     }, [])
@@ -566,9 +758,13 @@ export default function FlightChart() {
         (data, param, method = 'linear') => {
             const values = data.map((row) => {
                 const val = row[param]
-                return val === '' || val === null || val === undefined
-                    ? null
-                    : parseFloat(val)
+                if (val === '' || val === null || val === undefined) {
+                    return null
+                }
+                
+                const numVal = parseFloat(val)
+                // Only return the numeric value if it's valid, otherwise null
+                return !isNaN(numVal) ? numVal : null
             })
 
             // Find valid (non-null) data points
@@ -579,7 +775,45 @@ export default function FlightChart() {
                 }
             })
 
-            if (validPoints.length === 0) return values
+            if (validPoints.length === 0) {
+                console.warn(`No valid data points found for parameter ${param}`)
+                return values
+            }
+
+            // For extremely sparse data with very few points, consider different strategies
+            if (validPoints.length < 3 && values.length > 1000) {
+                console.log(`Extremely sparse parameter ${param} with only ${validPoints.length} valid points out of ${values.length}`)
+                
+                // For extremely sparse data, use a more aggressive interpolation
+                if (validPoints.length === 1) {
+                    // Only one valid point - fill everything with that value
+                    const singleValue = validPoints[0].value
+                    return values.map(() => singleValue)
+                } else if (validPoints.length === 2) {
+                    // Two points - use linear interpolation across entire range
+                    const firstPoint = validPoints[0]
+                    const lastPoint = validPoints[validPoints.length - 1]
+                    const slope = (lastPoint.value - firstPoint.value) / (lastPoint.index - firstPoint.index)
+                    
+                    return values.map((val, idx) => {
+                        if (val !== null && !isNaN(val)) return val // Keep original valid values
+                        return firstPoint.value + slope * (idx - firstPoint.index)
+                    })
+                }
+            }
+
+            // Debug log for very sparse data
+            const sparsityRatio = (values.length - validPoints.length) / values.length
+            if (sparsityRatio > 0.8) {
+                console.log(`Interpolating very sparse parameter ${param}:`, {
+                    totalPoints: values.length,
+                    validPoints: validPoints.length,
+                    sparsityRatio: (sparsityRatio * 100).toFixed(1) + '%',
+                    method: method,
+                    firstValidPoint: validPoints[0],
+                    lastValidPoint: validPoints[validPoints.length - 1]
+                })
+            }
 
             // Create interpolated array
             const interpolated = [...values]
@@ -646,6 +880,16 @@ export default function FlightChart() {
                             break
                     }
                 }
+            }
+
+            // Summary for debugging very sparse data
+            if (sparsityRatio > 0.8) {
+                const finalValidCount = interpolated.filter(val => val !== null && !isNaN(val)).length
+                console.log(`Interpolation complete for ${param}:`, {
+                    before: validPoints.length,
+                    after: finalValidCount,
+                    improvement: ((finalValidCount - validPoints.length) / values.length * 100).toFixed(1) + '%'
+                })
             }
 
             return interpolated
@@ -751,9 +995,14 @@ export default function FlightChart() {
         return { numericParams: numeric, categoricalParams: categorical }
     }, [selectedParameters, isNumericParameter])
 
-    // Memoize parameter grouping with search filtering - heavily optimized
+    // Memoize parameter grouping by data characteristics - group by type and sparsity
     const parameterGroups = useMemo(() => {
-        const groups = {}
+        const groups = {
+            'Numeric (Dense)': [],
+            'Numeric (Sparse)': [],
+            'Categorical (Dense)': [],
+            'Categorical (Sparse)': []
+        }
         
         // Early return for empty parameters
         if (parameters.length === 0) return groups
@@ -766,20 +1015,42 @@ export default function FlightChart() {
               })
             : parameters
 
-        // Process parameters into groups
+        // Process parameters into groups based on their data characteristics
         for (let i = 0; i < paramsToProcess.length; i++) {
             const param = paramsToProcess[i]
-            const parts = param.split(/[_\s]/)
-            const groupName = parts.length > 1 ? parts[0] : 'General'
-
-            if (!groups[groupName]) {
-                groups[groupName] = []
+            const metadata = parameterMetadata[param]
+            
+            if (metadata) {
+                if (metadata.isNumeric) {
+                    // Group numeric parameters by sparsity
+                    if (metadata.sparsityRatio > 0.2) {
+                        groups['Numeric (Sparse)'].push(param)
+                    } else {
+                        groups['Numeric (Dense)'].push(param)
+                    }
+                } else {
+                    // Group categorical parameters by sparsity
+                    if (metadata.sparsityRatio > 0.2) {
+                        groups['Categorical (Sparse)'].push(param)
+                    } else {
+                        groups['Categorical (Dense)'].push(param)
+                    }
+                }
+            } else {
+                // If no metadata available, default to dense numeric
+                groups['Numeric (Dense)'].push(param)
             }
-            groups[groupName].push(param)
         }
 
+        // Remove empty groups
+        Object.keys(groups).forEach(groupName => {
+            if (groups[groupName].length === 0) {
+                delete groups[groupName]
+            }
+        })
+
         return groups
-    }, [parameters, debouncedSearchTerm])
+    }, [parameters, debouncedSearchTerm, parameterMetadata])
 
     // Optimized filtered parameters count
     const filteredParametersCount = useMemo(() => {
@@ -921,30 +1192,105 @@ export default function FlightChart() {
                 }
 
                 const needsInterpolation = metadata.sparsityRatio > 0.2 || config.forceInterpolation
-                const interpolationMethod = config.interpolationMethod || 'forward'
+                const interpolationMethod = config.interpolationMethod || metadata.suggestedInterpolation || 'forward'
 
                 let numericData
                 if (needsInterpolation && interpolationMethod !== 'none') {
                     numericData = interpolateSparseData(processedData, param, interpolationMethod)
+                    
+                    // Debug: Log interpolation results for very sparse data
+                    if (metadata.sparsityRatio > 0.8) {
+                        const nonNullCount = numericData.filter(val => val !== null && !isNaN(val)).length
+                        console.log(`Interpolation results for ${param}:`, {
+                            originalSparsity: (metadata.sparsityRatio * 100).toFixed(1) + '%',
+                            originalNonEmpty: metadata.valueCount,
+                            afterInterpolation: nonNullCount,
+                            interpolationMethod: interpolationMethod,
+                            sampleValues: numericData.slice(0, 10),
+                            improvementRatio: metadata.valueCount > 0 ? (nonNullCount / metadata.valueCount).toFixed(2) + 'x' : 'N/A'
+                        })
+                        
+                        // If interpolation didn't help much, try a different approach
+                        if (nonNullCount < metadata.valueCount * 2 && metadata.valueCount < 10) {
+                            console.log(`Applying fallback strategy for extremely sparse ${param}`)
+                            // Create a constant line at the mean of available values
+                            const validValues = numericData.filter(val => val !== null && !isNaN(val))
+                            if (validValues.length > 0) {
+                                const meanValue = validValues.reduce((sum, val) => sum + val, 0) / validValues.length
+                                numericData = numericData.map(val => meanValue)
+                                console.log(`Applied mean fallback (${meanValue.toFixed(2)}) for ${param}`)
+                            }
+                        }
+                    }
                 } else {
-                    // Optimized standard processing
+                    // Optimized standard processing with improved handling for mixed data types
                     numericData = new Array(dataLength)
                     for (let j = 0; j < dataLength; j++) {
-                        const val = parseFloat(processedData[j][param])
-                        numericData[j] = isNaN(val) ? null : val
+                        const val = processedData[j][param]
+                        
+                        // Handle empty/null values
+                        if (val === '' || val === null || val === undefined) {
+                            numericData[j] = null
+                            continue
+                        }
+                        
+                        // Try to parse as number
+                        const numVal = parseFloat(val)
+                        if (!isNaN(numVal)) {
+                            numericData[j] = numVal
+                        } else {
+                            // For non-numeric values in numeric parameters (error codes, etc.)
+                            // Set to null to maintain chart continuity
+                            numericData[j] = null
+                        }
                     }
                 }
 
+                // For very sparse data, ensure we connect nulls and show interpolated data
+                const shouldConnectNulls = needsInterpolation || metadata.sparsityRatio > 0.5
+                const isExtremelySparse = metadata.sparsityRatio > 0.9
+                
+                // For extremely sparse data, consider showing as scatter plot with interpolated line
+                if (isExtremelySparse && metadata.valueCount < 50) {
+                    // Add scatter plot for actual data points
+                    series.push({
+                        name: param + '_actual',
+                        type: 'scatter',
+                        showSymbol: true,
+                        symbolSize: 6,
+                        itemStyle: { color: generateLineColor(i), opacity: 1 },
+                        xAxisIndex: i,
+                        yAxisIndex: i,
+                        data: numericData.map((val, idx) => {
+                            // Only show actual data points, not interpolated ones
+                            const originalVal = processedData[idx][param]
+                            const parsedOriginal = parseFloat(originalVal)
+                            return (!isNaN(parsedOriginal) && originalVal !== '' && originalVal !== null && originalVal !== undefined) ? val : null
+                        }),
+                        tooltip: {
+                            formatter: function(params) {
+                                return `${param} (Actual): ${params.value !== null ? params.value.toFixed(2) : 'No Data'}`
+                            }
+                        }
+                    })
+                }
+                
                 series.push({
                     name: param,
                     type: 'line',
-                    showSymbol: false,
-                    lineStyle: { width: 1.5, color: generateLineColor(i) },
+                    showSymbol: metadata.sparsityRatio > 0.5, // Show symbols for very sparse data to see actual data points
+                    symbolSize: metadata.sparsityRatio > 0.5 ? 4 : 0,
+                    lineStyle: { 
+                        width: metadata.sparsityRatio > 0.5 ? 2 : 1.5, 
+                        color: generateLineColor(i),
+                        type: metadata.sparsityRatio > 0.8 ? 'dashed' : 'solid', // Dashed line for very sparse data
+                        opacity: isExtremelySparse ? 0.6 : 1 // Slightly transparent for extremely sparse interpolated lines
+                    },
                     smooth: needsInterpolation && interpolationMethod === 'linear' && config.smoothInterpolated !== false,
                     xAxisIndex: i,
                     yAxisIndex: i,
                     data: numericData,
-                    connectNulls: needsInterpolation,
+                    connectNulls: shouldConnectNulls,
                     large: dataLength > 1000,
                     largeThreshold: 1000,
                 })
@@ -1108,8 +1454,16 @@ export default function FlightChart() {
                             const stateName = metadata.states[stateIndex] || 'Unknown'
                             tooltipContent += `<div>${paramName}: <span style="color:${paramColor}">${stateName}</span></div>`
                         } else {
-                            const value = param.value !== null ? param.value.toFixed(2) : 'N/A'
-                            tooltipContent += `<div>${paramName}: <span style="color:${paramColor}">${value}</span></div>`
+                            // Handle numeric parameters (including sparse numeric data)
+                            if (param.value !== null && param.value !== undefined && !isNaN(param.value)) {
+                                const value = param.value.toFixed(2)
+                                const unit = units[paramName] || ''
+                                const unitDisplay = unit ? ` ${unit}` : ''
+                                tooltipContent += `<div>${paramName}: <span style="color:${paramColor}">${value}${unitDisplay}</span></div>`
+                            } else {
+                                // For sparse data points with no value
+                                tooltipContent += `<div>${paramName}: <span style="color:${paramColor}">No Data</span></div>`
+                            }
                         }
                     })
 
