@@ -1401,12 +1401,12 @@ export default function FlightChart() {
                 if (minValue === maxValue) {
                     if (minValue === 0) {
                         // For all-zero data, create a small range around zero to show the line
-                        minValue = -1
+                        minValue = 0
                         maxValue = 1
                     } else {
                         // For other constant values, create a small range around the value
                         const offset = Math.abs(minValue) * 0.1 || 0.1
-                        minValue = minValue - 1
+                        minValue = minValue - 0
                         maxValue = maxValue + 1
                     }
                 }
