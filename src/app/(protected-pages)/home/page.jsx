@@ -1405,9 +1405,9 @@ export default function FlightChart() {
                         maxValue = 1
                     } else {
                         // For other constant values, create a small range around the value
-                        const offset = Math.abs(minValue) * 0.1 || 0.1
-                        minValue = minValue - 0
-                        maxValue = maxValue + 1
+                        //const offset = Math.abs(minValue) * 0.1 || 0.1
+                        minValue = 0
+                        maxValue = maxValue
                     }
                 }
 
