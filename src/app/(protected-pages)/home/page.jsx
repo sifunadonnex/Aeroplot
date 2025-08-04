@@ -677,18 +677,22 @@ export default function FlightChart() {
             const uniqueValues = isNumeric ? [] : [...new Set(values)].sort()
             const sparsityRatio = (data.length - nonEmptyCount) / data.length
             
+            const minValue = numericValues.length > 0 ? Math.min(...numericValues) : 0
+            const maxValue = numericValues.length > 0 ? Math.max(...numericValues) : 1
+            
             metadata[param] = {
                 isNumeric,
                 states: uniqueValues,
                 uniqueValues: uniqueValues,
-                min: numericValues.length > 0 ? Math.min(...numericValues) : 0,
-                max: numericValues.length > 0 ? Math.max(...numericValues) : 1,
+                min: minValue,
+                max: maxValue,
                 valueCount: nonEmptyCount,
                 totalCount: data.length,
                 sparsityRatio: sparsityRatio,
                 numericValueCount: numericValues.length,
                 nonNumericValueCount: nonNumericValues.length,
                 numericRatio: nonEmptyCount > 0 ? numericValues.length / nonEmptyCount : 0,
+                hasConstantValue: minValue === maxValue, // Flag for constant values
                 // Add suggested interpolation method based on sparsity
                 suggestedInterpolation: sparsityRatio > 0.8 ? 'forward' : 
                                       sparsityRatio > 0.5 ? 'linear' : 'none'
@@ -1246,8 +1250,12 @@ export default function FlightChart() {
                     }
                 }
 
+                // Check if we have constant values (all the same value, including all zeros)
+                const nonNullValues = numericData.filter(val => val !== null && !isNaN(val))
+                const hasConstantValues = nonNullValues.length > 0 && nonNullValues.every(val => val === nonNullValues[0])
+                
                 // For very sparse data, ensure we connect nulls and show interpolated data
-                const shouldConnectNulls = needsInterpolation || metadata.sparsityRatio > 0.5
+                const shouldConnectNulls = needsInterpolation || metadata.sparsityRatio > 0.5 || hasConstantValues
                 const isExtremelySparse = metadata.sparsityRatio > 0.9
                 
                 // For extremely sparse data, consider showing as scatter plot with interpolated line
@@ -1278,15 +1286,15 @@ export default function FlightChart() {
                 series.push({
                     name: param,
                     type: 'line',
-                    showSymbol: metadata.sparsityRatio > 0.5, // Show symbols for very sparse data to see actual data points
-                    symbolSize: metadata.sparsityRatio > 0.5 ? 4 : 0,
+                    showSymbol: metadata.sparsityRatio > 0.5 || hasConstantValues, // Show symbols for sparse data or constant values
+                    symbolSize: metadata.sparsityRatio > 0.5 || hasConstantValues ? 4 : 0,
                     lineStyle: { 
-                        width: metadata.sparsityRatio > 0.5 ? 2 : 1.5, 
+                        width: metadata.sparsityRatio > 0.5 || hasConstantValues ? 2 : 1.5, 
                         color: generateLineColor(i),
                         type: metadata.sparsityRatio > 0.8 ? 'dashed' : 'solid', // Dashed line for very sparse data
                         opacity: isExtremelySparse ? 0.6 : 1 // Slightly transparent for extremely sparse interpolated lines
                     },
-                    smooth: needsInterpolation && interpolationMethod === 'linear' && config.smoothInterpolated !== false,
+                    smooth: needsInterpolation && interpolationMethod === 'linear' && config.smoothInterpolated !== false && !hasConstantValues, // Don't smooth constant values
                     xAxisIndex: i,
                     yAxisIndex: i,
                     data: numericData,
@@ -1294,6 +1302,16 @@ export default function FlightChart() {
                     large: dataLength > 1000,
                     largeThreshold: 1000,
                 })
+                
+                // Debug log for constant values
+                if (hasConstantValues) {
+                    console.log(`Constant value detected for ${param}:`, {
+                        value: nonNullValues[0],
+                        count: nonNullValues.length,
+                        totalDataPoints: numericData.length,
+                        yAxisRange: `${metadata.min} to ${metadata.max}`
+                    })
+                }
             } else {
                 // Optimized categorical processing
                 const states = metadata.states
@@ -1376,8 +1394,22 @@ export default function FlightChart() {
             if (metadata.isNumeric) {
                 const config = chartConfig[param] || {}
                 const useCustomRange = config.customRange && config.useCustomRange
-                const minValue = useCustomRange ? config.customRange.min : metadata.min
-                const maxValue = useCustomRange ? config.customRange.max : metadata.max
+                let minValue = useCustomRange ? config.customRange.min : metadata.min
+                let maxValue = useCustomRange ? config.customRange.max : metadata.max
+
+                // Handle edge case where all values are zero (min === max === 0)
+                if (minValue === maxValue) {
+                    if (minValue === 0) {
+                        // For all-zero data, create a small range around zero to show the line
+                        minValue = -1
+                        maxValue = 1
+                    } else {
+                        // For other constant values, create a small range around the value
+                        const offset = Math.abs(minValue) * 0.1 || 0.1
+                        minValue = minValue - 1
+                        maxValue = maxValue + 1
+                    }
+                }
 
                 return {
                     type: 'value',
@@ -1389,16 +1421,44 @@ export default function FlightChart() {
                     nameTextStyle: { color: paramColor, fontSize: 10, fontWeight: 'bold', align: 'left' },
                     min: minValue,
                     max: maxValue,
-                    splitNumber: 2,
-                    interval: (maxValue - minValue),
+                    splitNumber: metadata.hasConstantValue ? 1 : 2, // More tick marks for constant values
                     axisLabel: {
                         fontSize: 9,
                         color: paramColor,
-                        formatter: (value) => Math.abs(value) >= 1000 ? (value / 1000).toFixed(1) + 'k' : value.toFixed(2),
+                        formatter: (value) => {
+                            // For constant values, ensure the actual constant value is prominently displayed
+                            if (metadata.hasConstantValue) {
+                                // Show the original constant value clearly when we're at the center of the range
+                                const centerValue = (minValue + maxValue) / 2
+                                if (Math.abs(value - centerValue) < (maxValue - minValue) * 0.1) {
+                                    return metadata.min.toString() // Show the exact constant value
+                                }
+                                // For edge values, show them normally but less prominently
+                                return Math.abs(value) >= 1000 ? (value / 1000).toFixed(1) + 'k' : value.toFixed(2)
+                            }
+                            // Normal formatting for non-constant values
+                            return Math.abs(value) >= 1000 ? (value / 1000).toFixed(1) + 'k' : value.toFixed(2)
+                        },
+                        showMinLabel: true,
+                        showMaxLabel: true,
                     },
                     axisLine: { show: true, lineStyle: { color: paramColor } },
-                    axisTick: { show: true, length: 3, lineStyle: { color: paramColor }, interval: 0 },
-                    splitLine: { show: true, lineStyle: { type: 'solid', color: paramColor, opacity: 0.2 }, interval: 0 },
+                    axisTick: { 
+                        show: true, 
+                        length: metadata.hasConstantValue ? 5 : 3, // Longer ticks for constant values
+                        lineStyle: { color: paramColor }, 
+                        interval: 0 
+                    },
+                    splitLine: { 
+                        show: true, 
+                        lineStyle: { 
+                            type: metadata.hasConstantValue ? 'solid' : 'solid', 
+                            color: paramColor, 
+                            opacity: metadata.hasConstantValue ? 0.4 : 0.2,
+                            width: metadata.hasConstantValue ? 1.5 : 1
+                        }, 
+                        interval: 0 
+                    },
                 }
             } else {
                 const states = metadata.states
