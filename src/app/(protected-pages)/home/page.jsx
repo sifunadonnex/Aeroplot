@@ -1779,7 +1779,19 @@ export default function FlightChart() {
                 }
                 
                 // Map page parameters back to their indices in the extended selected parameters
-                const pageParamIndices = pageParams.map(param => extendedSelectedParams.indexOf(param))
+                const pageParamIndices = pageParams.map(param => {
+                    const index = extendedSelectedParams.indexOf(param)
+                    if (index === -1) {
+                        console.warn(`Parameter ${param} not found in extendedSelectedParams`, {
+                            param,
+                            extendedSelectedParams: extendedSelectedParams.slice(0, 5), // Show first 5 for debugging
+                            selectedParameters: selectedParameters.slice(0, 5)
+                        })
+                        // Try to find in original selectedParameters as fallback
+                        return selectedParameters.indexOf(param)
+                    }
+                    return index
+                })
 
                 // Create extended chart options that include focus parameter if needed
                 let extendedChartOption = chartOption
@@ -1870,8 +1882,10 @@ export default function FlightChart() {
                     dataZoom: null,
                     title: null,
                     // Show parameters for this page only with adjusted indices
-                    series: extendedChartOption.series
-                        ? pageParamIndices.map((originalIndex, newIndex) => ({
+                    series: extendedChartOption.series && pageParamIndices.length > 0
+                        ? pageParamIndices
+                              .filter(originalIndex => originalIndex >= 0 && originalIndex < extendedChartOption.series.length) // Filter out invalid indices
+                              .map((originalIndex, newIndex) => ({
                                   ...extendedChartOption.series[originalIndex],
                                   xAxisIndex: newIndex,
                                   yAxisIndex: newIndex,
@@ -1879,8 +1893,10 @@ export default function FlightChart() {
                               }))
                         : [],
                     // Slice and reset the xAxis and yAxis to match the grid indices
-                    xAxis: extendedChartOption.xAxis
-                        ? pageParamIndices.map((originalIndex, newIndex) => ({
+                    xAxis: extendedChartOption.xAxis && pageParamIndices.length > 0
+                        ? pageParamIndices
+                              .filter(originalIndex => originalIndex >= 0 && originalIndex < extendedChartOption.xAxis.length) // Filter out invalid indices
+                              .map((originalIndex, newIndex) => ({
                                   ...extendedChartOption.xAxis[originalIndex],
                                   gridIndex: newIndex,
                                   axisLabel: {
@@ -1897,27 +1913,38 @@ export default function FlightChart() {
                                   },
                               }))
                         : [],
-                    yAxis: extendedChartOption.yAxis
-                        ? pageParamIndices.map((originalIndex, newIndex) => ({
+                    yAxis: extendedChartOption.yAxis && pageParamIndices.length > 0
+                        ? pageParamIndices
+                              .filter(originalIndex => originalIndex >= 0 && originalIndex < extendedChartOption.yAxis.length) // Filter out invalid indices
+                              .map((originalIndex, newIndex) => ({
                                   ...extendedChartOption.yAxis[originalIndex],
                                   gridIndex: newIndex,
                               }))
                         : [],
                     // Recalculate grid positions for print
-                    grid: pageParams.map((param, index) => {
-                        const topMargin = 8
-                        const availablePrintHeight = 88
-                        const printGridHeight = Math.floor(availablePrintHeight / chartsOnThisPage) - 2.5
-                        const printGapBetweenCharts = 4
+                    grid: pageParams
+                        .filter((param, index) => {
+                            const originalIndex = pageParamIndices[index]
+                            return originalIndex >= 0 && originalIndex < (extendedChartOption.series?.length || 0)
+                        })
+                        .map((param, index) => {
+                            const topMargin = 8
+                            const availablePrintHeight = 88
+                            const validParamsCount = pageParams.filter((p, i) => {
+                                const origIndex = pageParamIndices[i]
+                                return origIndex >= 0 && origIndex < (extendedChartOption.series?.length || 0)
+                            }).length
+                            const printGridHeight = Math.floor(availablePrintHeight / validParamsCount) - 2.5
+                            const printGapBetweenCharts = 4
 
-                        return {
-                            left: '2%',
-                            right: '1%',
-                            top: `${topMargin + index * (printGridHeight + printGapBetweenCharts)}%`,
-                            height: `${printGridHeight}%`,
-                            containLabel: false,
-                        }
-                    }),
+                            return {
+                                left: '2%',
+                                right: '1%',
+                                top: `${topMargin + index * (printGridHeight + printGapBetweenCharts)}%`,
+                                height: `${printGridHeight}%`,
+                                containLabel: false,
+                            }
+                        }),
                 }
 
                 // Create a temporary chart for print rendering - optimized
