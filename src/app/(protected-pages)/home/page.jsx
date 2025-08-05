@@ -999,14 +999,86 @@ export default function FlightChart() {
         return { numericParams: numeric, categoricalParams: categorical }
     }, [selectedParameters, isNumericParameter])
 
-    // Memoize parameter grouping by data characteristics - group by type and sparsity
-    const parameterGroups = useMemo(() => {
-        const groups = {
-            'Numeric (Dense)': [],
-            'Numeric (Sparse)': [],
-            'Categorical (Dense)': [],
-            'Categorical (Sparse)': []
+    // Function to categorize parameters by name patterns
+    const categorizeParameterByName = useCallback((param) => {
+        const paramLower = param.toLowerCase()
+        
+        // Flight Control & Navigation
+        if (paramLower.includes('airspeed') || paramLower.includes('speed') || paramLower.includes('velocity') || 
+            paramLower.includes('vtd') || paramLower.includes('kias') || paramLower.includes('mach')) {
+            return 'Airspeed & Velocity'
         }
+        
+        if (paramLower.includes('altitude') || paramLower.includes('alt') || paramLower.includes('height') || 
+            paramLower.includes('elevation') || paramLower.includes('baro')) {
+            return 'Altitude & Pressure'
+        }
+        
+        if (paramLower.includes('attitude') || paramLower.includes('pitch') || paramLower.includes('roll') || 
+            paramLower.includes('yaw') || paramLower.includes('bank') || paramLower.includes('heading') || 
+            paramLower.includes('track') || paramLower.includes('bearing')) {
+            return 'Attitude & Navigation'
+        }
+        
+        // Engine Parameters
+        if (paramLower.includes('engine') || paramLower.includes('epr') || paramLower.includes('n1') || 
+            paramLower.includes('n2') || paramLower.includes('rpm') || paramLower.includes('thrust') || 
+            paramLower.includes('fuel') || paramLower.includes('ff') || paramLower.includes('egt') || 
+            paramLower.includes('itt') || paramLower.includes('cht') || paramLower.includes('oil')) {
+            return 'Engine & Propulsion'
+        }
+        
+        // Flight Controls
+        if (paramLower.includes('flap') || paramLower.includes('slat') || paramLower.includes('spoiler') || 
+            paramLower.includes('rudder') || paramLower.includes('elevator') || paramLower.includes('aileron') || 
+            paramLower.includes('trim') || paramLower.includes('control') || paramLower.includes('stick') || 
+            paramLower.includes('pedal')) {
+            return 'Flight Controls'
+        }
+        
+        // Landing Gear & Systems
+        if (paramLower.includes('gear') || paramLower.includes('wheel') || paramLower.includes('brake') || 
+            paramLower.includes('door') || paramLower.includes('hydraulic') || paramLower.includes('strut') || 
+            paramLower.includes('tire') || paramLower.includes('shock')) {
+            return 'Landing Gear & Systems'
+        }
+        
+        // Environmental & Conditions
+        if (paramLower.includes('temperature') || paramLower.includes('temp') || paramLower.includes('pressure') || 
+            paramLower.includes('density') || paramLower.includes('wind') || paramLower.includes('weather') || 
+            paramLower.includes('ice') || paramLower.includes('rain') || paramLower.includes('visibility')) {
+            return 'Environmental'
+        }
+        
+        // Electrical & Avionics
+        if (paramLower.includes('voltage') || paramLower.includes('current') || paramLower.includes('electrical') || 
+            paramLower.includes('battery') || paramLower.includes('generator') || paramLower.includes('avionics') || 
+            paramLower.includes('radio') || paramLower.includes('nav') || paramLower.includes('gps') || 
+            paramLower.includes('comm')) {
+            return 'Electrical & Avionics'
+        }
+        
+        // Flight Phases & Events
+        if (paramLower.includes('phase') || paramLower.includes('event') || paramLower.includes('flag') || 
+            paramLower.includes('status') || paramLower.includes('mode') || paramLower.includes('state') || 
+            paramLower.includes('discrete') || paramLower.includes('switch')) {
+            return 'Flight Phases & Events'
+        }
+        
+        // Time & Position
+        if (paramLower.includes('time') || paramLower.includes('sample') || paramLower.includes('count') || 
+            paramLower.includes('latitude') || paramLower.includes('longitude') || paramLower.includes('position') || 
+            paramLower.includes('distance') || paramLower.includes('range')) {
+            return 'Time & Position'
+        }
+        
+        // Default category for unmatched parameters
+        return 'Other Parameters'
+    }, [])
+
+    // Memoize parameter grouping by data characteristics and names
+    const parameterGroups = useMemo(() => {
+        const groups = {}
         
         // Early return for empty parameters
         if (parameters.length === 0) return groups
@@ -1019,42 +1091,70 @@ export default function FlightChart() {
               })
             : parameters
 
-        // Process parameters into groups based on their data characteristics
-        for (let i = 0; i < paramsToProcess.length; i++) {
-            const param = paramsToProcess[i]
-            const metadata = parameterMetadata[param]
+        // First, group by name categories
+        const nameGroups = {}
+        paramsToProcess.forEach(param => {
+            const category = categorizeParameterByName(param)
+            if (!nameGroups[category]) {
+                nameGroups[category] = []
+            }
+            nameGroups[category].push(param)
+        })
+
+        // Then, within each name category, sub-group by data characteristics
+        Object.entries(nameGroups).forEach(([category, params]) => {
+            const categoryGroups = {
+                'Numeric (Dense)': [],
+                'Numeric (Sparse)': [],
+                'Categorical (Dense)': [],
+                'Categorical (Sparse)': []
+            }
             
-            if (metadata) {
-                if (metadata.isNumeric) {
-                    // Group numeric parameters by sparsity
-                    if (metadata.sparsityRatio > 0.2) {
-                        groups['Numeric (Sparse)'].push(param)
+            params.forEach(param => {
+                const metadata = parameterMetadata[param]
+                
+                if (metadata) {
+                    if (metadata.isNumeric) {
+                        // Group numeric parameters by sparsity
+                        if (metadata.sparsityRatio > 0.2) {
+                            categoryGroups['Numeric (Sparse)'].push(param)
+                        } else {
+                            categoryGroups['Numeric (Dense)'].push(param)
+                        }
                     } else {
-                        groups['Numeric (Dense)'].push(param)
+                        // Group categorical parameters by sparsity
+                        if (metadata.sparsityRatio > 0.2) {
+                            categoryGroups['Categorical (Sparse)'].push(param)
+                        } else {
+                            categoryGroups['Categorical (Dense)'].push(param)
+                        }
                     }
                 } else {
-                    // Group categorical parameters by sparsity
-                    if (metadata.sparsityRatio > 0.2) {
-                        groups['Categorical (Sparse)'].push(param)
-                    } else {
-                        groups['Categorical (Dense)'].push(param)
-                    }
+                    // If no metadata available, default to dense numeric
+                    categoryGroups['Numeric (Dense)'].push(param)
                 }
-            } else {
-                // If no metadata available, default to dense numeric
-                groups['Numeric (Dense)'].push(param)
-            }
-        }
-
-        // Remove empty groups
-        Object.keys(groups).forEach(groupName => {
-            if (groups[groupName].length === 0) {
-                delete groups[groupName]
+            })
+            
+            // Only add non-empty sub-groups to the main groups
+            Object.entries(categoryGroups).forEach(([subGroup, subParams]) => {
+                if (subParams.length > 0) {
+                    const groupName = `${category} - ${subGroup}`
+                    groups[groupName] = subParams
+                }
+            })
+            
+            // If we only have one sub-group with parameters, simplify the name
+            const nonEmptySubGroups = Object.entries(categoryGroups).filter(([_, subParams]) => subParams.length > 0)
+            if (nonEmptySubGroups.length === 1) {
+                // Remove the detailed sub-group and just use category name
+                const [subGroup, subParams] = nonEmptySubGroups[0]
+                delete groups[`${category} - ${subGroup}`]
+                groups[category] = subParams
             }
         })
 
         return groups
-    }, [parameters, debouncedSearchTerm, parameterMetadata])
+    }, [parameters, debouncedSearchTerm, parameterMetadata, categorizeParameterByName])
 
     // Optimized filtered parameters count
     const filteredParametersCount = useMemo(() => {
