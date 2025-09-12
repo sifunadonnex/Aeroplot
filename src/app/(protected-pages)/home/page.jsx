@@ -1076,9 +1076,14 @@ export default function FlightChart() {
         return 'Other Parameters'
     }, [])
 
-    // Memoize parameter grouping by data characteristics and names
+    // Memoize parameter grouping by only data characteristics (Dense/Sparse and Numeric/Categorical)
     const parameterGroups = useMemo(() => {
-        const groups = {}
+        const groups = {
+            'Numeric (Dense)': [],
+            'Numeric (Sparse)': [],
+            'Categorical (Dense)': [],
+            'Categorical (Sparse)': []
+        }
         
         // Early return for empty parameters
         if (parameters.length === 0) return groups
@@ -1091,70 +1096,34 @@ export default function FlightChart() {
               })
             : parameters
 
-        // First, group by name categories
-        const nameGroups = {}
+        // Directly categorize by data characteristics only
         paramsToProcess.forEach(param => {
-            const category = categorizeParameterByName(param)
-            if (!nameGroups[category]) {
-                nameGroups[category] = []
-            }
-            nameGroups[category].push(param)
-        })
-
-        // Then, within each name category, sub-group by data characteristics
-        Object.entries(nameGroups).forEach(([category, params]) => {
-            const categoryGroups = {
-                'Numeric (Dense)': [],
-                'Numeric (Sparse)': [],
-                'Categorical (Dense)': [],
-                'Categorical (Sparse)': []
-            }
+            const metadata = parameterMetadata[param]
             
-            params.forEach(param => {
-                const metadata = parameterMetadata[param]
-                
-                if (metadata) {
-                    if (metadata.isNumeric) {
-                        // Group numeric parameters by sparsity
-                        if (metadata.sparsityRatio > 0.2) {
-                            categoryGroups['Numeric (Sparse)'].push(param)
-                        } else {
-                            categoryGroups['Numeric (Dense)'].push(param)
-                        }
+            if (metadata) {
+                if (metadata.isNumeric) {
+                    // Group numeric parameters by sparsity
+                    if (metadata.sparsityRatio > 0.2) {
+                        groups['Numeric (Sparse)'].push(param)
                     } else {
-                        // Group categorical parameters by sparsity
-                        if (metadata.sparsityRatio > 0.2) {
-                            categoryGroups['Categorical (Sparse)'].push(param)
-                        } else {
-                            categoryGroups['Categorical (Dense)'].push(param)
-                        }
+                        groups['Numeric (Dense)'].push(param)
                     }
                 } else {
-                    // If no metadata available, default to dense numeric
-                    categoryGroups['Numeric (Dense)'].push(param)
+                    // Group categorical parameters by sparsity
+                    if (metadata.sparsityRatio > 0.2) {
+                        groups['Categorical (Sparse)'].push(param)
+                    } else {
+                        groups['Categorical (Dense)'].push(param)
+                    }
                 }
-            })
-            
-            // Only add non-empty sub-groups to the main groups
-            Object.entries(categoryGroups).forEach(([subGroup, subParams]) => {
-                if (subParams.length > 0) {
-                    const groupName = `${category} - ${subGroup}`
-                    groups[groupName] = subParams
-                }
-            })
-            
-            // If we only have one sub-group with parameters, simplify the name
-            const nonEmptySubGroups = Object.entries(categoryGroups).filter(([_, subParams]) => subParams.length > 0)
-            if (nonEmptySubGroups.length === 1) {
-                // Remove the detailed sub-group and just use category name
-                const [subGroup, subParams] = nonEmptySubGroups[0]
-                delete groups[`${category} - ${subGroup}`]
-                groups[category] = subParams
+            } else {
+                // If no metadata available, default to dense numeric
+                groups['Numeric (Dense)'].push(param)
             }
         })
 
         return groups
-    }, [parameters, debouncedSearchTerm, parameterMetadata, categorizeParameterByName])
+    }, [parameters, debouncedSearchTerm, parameterMetadata])
 
     // Optimized filtered parameters count
     const filteredParametersCount = useMemo(() => {
