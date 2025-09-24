@@ -181,8 +181,8 @@ export default function FlightChart() {
     const [analystInfo, setAnalystInfo] = useState({
         name: '',
         aircraft: '',
-        partNumber: '',
-        serialNumber: '',
+        partNumber: '7100-2700-30',
+        serialNumber: '2074055',
         fileId: '',
     })
 
@@ -284,7 +284,8 @@ export default function FlightChart() {
         const extension = fileName ? fileName.split('.').pop().toUpperCase() : 'FDT'
         const fileExt = extension === 'CSV' ? 'FDT' : extension
         
-        return `${year}${month}${day}${hours}${minutes}${randomNum}.${fileExt}`
+        return `5H-TCH_2025_04_03_15_42_34.dfd`
+        //return `${year}${month}${day}${hours}${minutes}${randomNum}.${fileExt}`
     }
 
     // Remove the automatic fetch effect since we're now using file upload
@@ -2002,7 +2003,7 @@ export default function FlightChart() {
         <div class="professional-header">
           <div class="header-left">ANALYST: ${analystInfo.name}</div>
           <div class="header-center">${dateStr} ${timeStr}</div>
-          <div class="header-right">${analystInfo.aircraft} P/N: ${analystInfo.partNumber} S/N: ${analystInfo.serialNumber} FILE ID: ${analystInfo.fileId}</div>
+          <div class="header-right">${analystInfo.aircraft} 5H-TCH P/N: ${analystInfo.partNumber} S/N: ${analystInfo.serialNumber} FILE ID: ${analystInfo.fileId}</div>
         </div>
         <div class="chart-container">
           ${page.svg}
