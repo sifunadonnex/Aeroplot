@@ -1979,10 +1979,7 @@ export default function FlightChart() {
     .print-container { width: 100%; max-width: 100%; padding: 0; margin: 0; }
     .chart-page { page-break-before: always; page-break-after: always; page-break-inside: avoid; height: 100vh; position: relative; }
     .chart-page:first-child { page-break-before: auto; }
-    .professional-header { width: 100%; padding-bottom: 3px; margin-bottom: 8px; font-size: 11px; font-weight: normal; display: flex; justify-content: space-between; align-items: center; }
-    .header-left { text-align: left; flex: 1; }
-    .header-center { text-align: center; flex: 1; font-weight: normal; }
-    .header-right { text-align: right; flex: 1; }
+    .professional-header { width: 100%; padding-bottom: 3px; margin-bottom: 8px; font-size: 11px; font-weight: normal; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .chart-container { width: 100%; text-align: center; page-break-inside: avoid; page-break-before: auto; page-break-after: avoid; height: 88vh; max-height: 88vh; margin-top: 0; }
     .chart-container svg { max-width: 100%; height: 100%; max-height: 100%; display: block; margin: 0 auto; page-break-inside: avoid; }
     @media print {
@@ -2001,9 +1998,7 @@ export default function FlightChart() {
     ${chartPages.map((page, pageIndex) => `
       <div class="chart-page">
         <div class="professional-header">
-          <div class="header-left">ANALYST: ${analystInfo.name}</div>
-          <div class="header-center">${dateStr} ${timeStr}</div>
-          <div class="header-right">${analystInfo.aircraft} 5H-TCH P/N: ${analystInfo.partNumber} S/N: ${analystInfo.serialNumber} FILE ID: ${analystInfo.fileId}</div>
+          ANALYST: ${analystInfo.name}   ${dateStr} ${timeStr}   ${analystInfo.aircraft} P/N: ${analystInfo.partNumber} S/N: ${analystInfo.serialNumber} FILE ID: ${analystInfo.fileId}
         </div>
         <div class="chart-container">
           ${page.svg}
